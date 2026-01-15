@@ -38,6 +38,8 @@ object NetworkLoader {
 
         return List(count) {
             val routeId = reader.readUInt32()
+            val nameLen = reader.readUInt16()
+            val name = reader.readUTF8(nameLen)
             val stopCount = reader.readUInt32()
             val tripCount = reader.readUInt32()
             val stopIds = IntArray(stopCount) { reader.readUInt32() }
@@ -53,7 +55,7 @@ object NetworkLoader {
                 }
                 Trip(tripId, arrivalTimes)
             }
-            Route(routeId, stopIds, trips)
+            Route(routeId, name, stopIds, trips)
         }
     }
 }

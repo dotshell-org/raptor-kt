@@ -25,6 +25,7 @@ data class Transfer(
  */
 data class Route(
     val id: Int,
+    val name: String,
     val stopIds: IntArray, // Ordered list of stop IDs for this route
     val trips: List<Trip>  // List of scheduled trips for this route
 )
