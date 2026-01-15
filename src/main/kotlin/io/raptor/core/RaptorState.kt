@@ -14,6 +14,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
 
     // A boolean array to track which stops were improved in the current round
     private val markedStops = BooleanArray(network.stopCount)
+    private val markedStopsPrevious = BooleanArray(network.stopCount)
 
     fun markStop(stopIndex: Int) {
         markedStops[stopIndex] = true
@@ -21,7 +22,10 @@ class RaptorState(val network: Network, val maxRounds: Int) {
 
     fun isMarked(stopIndex: Int): Boolean = markedStops[stopIndex]
 
+    fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
+
     fun clearMarks() {
+        System.arraycopy(markedStops, 0, markedStopsPrevious, 0, markedStops.size)
         markedStops.fill(false)
     }
 

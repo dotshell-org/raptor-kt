@@ -14,4 +14,19 @@ class Network(
     private val stopIndexMap = stops.associateBy { it.id }
 
     fun getStop(id: Int): Stop? = stopIndexMap[id]
+
+    /**
+     * Identifies all routes that serve any of the given stops.
+     */
+    fun getRoutesServingStops(stopIndices: Collection<Int>): Set<Route> {
+        val routeIds = mutableSetOf<Int>()
+        for (stopIdx in stopIndices) {
+            val stop = stops[stopIdx]
+            for (routeId in stop.routeIds) {
+                routeIds.add(routeId)
+            }
+        }
+        // Map route IDs to actual route objects
+        return routeIds.mapNotNull { id -> routes.find { it.id == id } }.toSet()
+    }
 }
