@@ -86,7 +86,12 @@ class RaptorLibrary(dataDirPath: String) {
     /**
      * Searches and displays optimized routes between two stops (by name).
      */
-    fun searchAndDisplayRoute(originName: String, destinationName: String, departureTime: Int) {
+    fun searchAndDisplayRoute(
+        originName: String,
+        destinationName: String,
+        departureTime: Int,
+        showIntermediateStops: Boolean = false
+    ) {
         val originStops = searchStopsByName(originName)
         val destinationStops = searchStopsByName(destinationName)
 
@@ -111,7 +116,7 @@ class RaptorLibrary(dataDirPath: String) {
                     val arrival = journey.last().arrivalTime
                     val transfers = journey.count { !it.isTransfer } - 1
                     println("\nOption ${idx + 1}: Arrival at ${formatTime(arrival)} | $transfers transfers")
-                    displayJourney(journey)
+                    displayJourney(journey, showIntermediateStops)
                 }
             }
         }
@@ -120,7 +125,7 @@ class RaptorLibrary(dataDirPath: String) {
     /**
      * Displays a journey in a readable format.
      */
-    fun displayJourney(journey: List<JourneyLeg>) {
+    fun displayJourney(journey: List<JourneyLeg>, showIntermediateStops: Boolean = false) {
         val stops = network.stops
         for ((index, leg) in journey.withIndex()) {
             val fromStop = stops[leg.fromStopIndex]
@@ -133,7 +138,17 @@ class RaptorLibrary(dataDirPath: String) {
                 println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
             } else {
                 println("${index + 1}. 🚍 Line ${leg.routeName} : ${fromStop.name} → ${toStop.name}")
-                println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+                if (showIntermediateStops && leg.intermediateStopIndices.isNotEmpty()) {
+                    println("   Departure: $depTime from ${fromStop.name}")
+                    for (i in leg.intermediateStopIndices.indices) {
+                        val intermediateStop = stops[leg.intermediateStopIndices[i]]
+                        val intermediateTime = formatTime(leg.intermediateArrivalTimes[i])
+                        println("     - $intermediateTime: ${intermediateStop.name}")
+                    }
+                    println("   Arrival: $arrTime at ${toStop.name} (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+                } else {
+                    println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+                }
             }
         }
     }

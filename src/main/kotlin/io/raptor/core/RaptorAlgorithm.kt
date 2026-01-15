@@ -72,6 +72,9 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         val routesToExplore = network.getRoutesServingStops(markedFromPrevious)
 
         for (route in routesToExplore) {
+            if (debug && route.name == "D") {
+                println("  Exploring Line D (id: ${route.id}, stops: ${route.stopIds.size})")
+            }
             var currentTrip: Trip? = null
             var boardingIndex = -1
 
@@ -92,11 +95,12 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                             println("    -> ${network.stops[stopIndex].name} at ${formatTime(arrivalTime)}")
                         }
                         state.bestArrival[round][stopIndex] = arrivalTime
-                        state.parent[round][stopIndex] = Tuple4(
+                        state.parent[round][stopIndex] = Tuple5(
                             route.stopIds[boardingIndex].let { network.getStopIndex(it) },
                             round - 1,
-                            route.name,
-                            currentTrip.stopTimes[boardingIndex]
+                            route.id,
+                            currentTrip.stopTimes[boardingIndex],
+                            currentTrip.id
                         )
                         state.markStop(stopIndex)
                         
@@ -112,12 +116,15 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                     val arrivalAtStop = state.bestArrival[round - 1][stopIndex]
                     val earliestTrip = findEarliestTrip(route, i, arrivalAtStop)
 
-                    if (earliestTrip != null && (currentTrip == null || earliestTrip.isEarlierThan(currentTrip))) {
-                        currentTrip = earliestTrip
-                        boardingIndex = i
-                        if (debug && !routeLogged) {
-                            println("  Line ${route.name}")
-                            routeLogged = true
+                    if (earliestTrip != null) {
+                        val departureFromStop = earliestTrip.stopTimes[i]
+                        if (currentTrip == null || departureFromStop < currentTrip.stopTimes[i]) {
+                            currentTrip = earliestTrip
+                            boardingIndex = i
+                            if (debug && !routeLogged) {
+                                println("  Line ${route.name}")
+                                routeLogged = true
+                            }
                         }
                     }
                 }
@@ -160,7 +167,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                         println("  Walk (explicit) transfer: ${stop.name} -> ${network.stops[targetStopIndex].name} (${formatTime(arrivalAtTarget)})")
                     }
                     state.bestArrival[round][targetStopIndex] = arrivalAtTarget
-                    state.parent[round][targetStopIndex] = Tuple4(stopIndex, round, null, arrivalTime)
+                    state.parent[round][targetStopIndex] = Tuple5(stopIndex, round, null, arrivalTime, -1)
                     state.markStop(targetStopIndex)
                 }
             }
@@ -177,7 +184,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                         println("  Implicit transfer: ${stop.name} -> ${network.stops[otherStopIndex].name} (${formatTime(arrivalAtTarget)})")
                     }
                     state.bestArrival[round][otherStopIndex] = arrivalAtTarget
-                    state.parent[round][otherStopIndex] = Tuple4(stopIndex, round, null, arrivalTime)
+                    state.parent[round][otherStopIndex] = Tuple5(stopIndex, round, null, arrivalTime, -1)
                     state.markStop(otherStopIndex)
                 }
             }

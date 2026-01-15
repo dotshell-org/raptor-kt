@@ -8,14 +8,17 @@ data class JourneyLeg(
     val departureTime: Int,
     val arrivalTime: Int,
     val routeName: String?,
-    val isTransfer: Boolean
+    val isTransfer: Boolean,
+    val intermediateStopIndices: List<Int> = emptyList(),
+    val intermediateArrivalTimes: List<Int> = emptyList()
 )
 
-data class Tuple4<out A, out B, out C, out D>(
+data class Tuple5<out A, out B, out C, out D, out E>(
     val first: A,
     val second: B,
     val third: C,
-    val fourth: D
+    val fourth: D,
+    val fifth: E
 )
 
 /**
@@ -28,8 +31,8 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         IntArray(network.stopCount) { Int.MAX_VALUE }
     }
 
-    // Parent tracking: [round][stopIndex] -> (parentStopIndex, parentRound, routeName or null if transfer, departureTime)
-    val parent: Array<Array<Tuple4<Int, Int, String?, Int>?>> = Array(maxRounds + 1) {
+    // Parent tracking: [round][stopIndex] -> (parentStopIndex, parentRound, routeId or null if transfer, departureTime, tripId)
+    val parent: Array<Array<Tuple5<Int, Int, Int?, Int, Int>?>> = Array(maxRounds + 1) {
         Array(network.stopCount) { null }
     }
 
@@ -100,7 +103,36 @@ class RaptorState(val network: Network, val maxRounds: Int) {
             val parentInfo = parent[currentRound][currentStop] ?: // No more parents, we reached the origin
             break
 
-            val (parentStop, parentRound, routeName, departureTime) = parentInfo
+            val (parentStop, parentRound, routeId, departureTime, tripId) = parentInfo
+
+            val intermediateStopIndices = mutableListOf<Int>()
+            val intermediateArrivalTimes = mutableListOf<Int>()
+
+            var routeName: String? = null
+
+            if (routeId != null && tripId != -1) {
+                val routes = network.getRoutesServingStops(listOf(parentStop)).filter { it.id == routeId }
+                
+                for (route in routes) {
+                    val trip = route.trips.find { it.id == tripId }
+                    if (trip != null) {
+                        val startIndex = route.stopIds.indexOfFirst { network.getStopIndex(it) == parentStop }
+                        val endIndex = route.stopIds.indexOfFirst { network.getStopIndex(it) == currentStop }
+                        
+                        if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
+                            routeName = route.name
+                            for (i in startIndex + 1 until endIndex) {
+                                val stopId = route.stopIds[i]
+                                val stopIndex = network.getStopIndex(stopId)
+                                intermediateStopIndices.add(stopIndex)
+                                intermediateArrivalTimes.add(trip.stopTimes[i])
+                            }
+                            break // Found the correct variant
+                        }
+                    }
+                }
+            }
+
             legs.add(
                 JourneyLeg(
                     fromStopIndex = parentStop,
@@ -108,7 +140,9 @@ class RaptorState(val network: Network, val maxRounds: Int) {
                     departureTime = departureTime,
                     arrivalTime = bestArrival[currentRound][currentStop],
                     routeName = routeName,
-                    isTransfer = routeName == null
+                    isTransfer = routeName == null,
+                    intermediateStopIndices = intermediateStopIndices,
+                    intermediateArrivalTimes = intermediateArrivalTimes
                 )
             )
 
