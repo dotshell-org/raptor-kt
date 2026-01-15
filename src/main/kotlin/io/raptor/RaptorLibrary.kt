@@ -137,7 +137,8 @@ class RaptorLibrary(dataDirPath: String) {
                 println("${index + 1}. 🚶 Transfer: ${fromStop.name} → ${toStop.name}")
                 println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
             } else {
-                println("${index + 1}. 🚍 Line ${leg.routeName} : ${fromStop.name} → ${toStop.name}")
+                val directionInfo = if (leg.direction != null) " to ${leg.direction}" else ""
+                println("${index + 1}. 🚍 Line ${leg.routeName}$directionInfo: ${fromStop.name} → ${toStop.name}")
                 if (showIntermediateStops && leg.intermediateStopIndices.isNotEmpty()) {
                     println("   Departure: $depTime from ${fromStop.name}")
                     for (i in leg.intermediateStopIndices.indices) {

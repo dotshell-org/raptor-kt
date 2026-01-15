@@ -10,7 +10,8 @@ data class JourneyLeg(
     val routeName: String?,
     val isTransfer: Boolean,
     val intermediateStopIndices: List<Int> = emptyList(),
-    val intermediateArrivalTimes: List<Int> = emptyList()
+    val intermediateArrivalTimes: List<Int> = emptyList(),
+    val direction: String? = null
 )
 
 data class Tuple5<out A, out B, out C, out D, out E>(
@@ -109,6 +110,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
             val intermediateArrivalTimes = mutableListOf<Int>()
 
             var routeName: String? = null
+            var direction: String? = null
 
             if (routeId != null && tripId != -1) {
                 val routes = network.getRoutesServingStops(listOf(parentStop)).filter { it.id == routeId }
@@ -121,6 +123,11 @@ class RaptorState(val network: Network, val maxRounds: Int) {
                         
                         if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
                             routeName = route.name
+                            val lastStopId = route.stopIds.last()
+                            val lastStopIndex = network.getStopIndex(lastStopId)
+                            if (lastStopIndex != -1) {
+                                direction = network.stops[lastStopIndex].name
+                            }
                             for (i in startIndex + 1 until endIndex) {
                                 val stopId = route.stopIds[i]
                                 val stopIndex = network.getStopIndex(stopId)
@@ -142,7 +149,8 @@ class RaptorState(val network: Network, val maxRounds: Int) {
                     routeName = routeName,
                     isTransfer = routeName == null,
                     intermediateStopIndices = intermediateStopIndices,
-                    intermediateArrivalTimes = intermediateArrivalTimes
+                    intermediateArrivalTimes = intermediateArrivalTimes,
+                    direction = direction
                 )
             )
 
