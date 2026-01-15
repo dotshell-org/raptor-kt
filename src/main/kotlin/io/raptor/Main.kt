@@ -5,48 +5,90 @@ import java.io.File
 
 fun main() {
     val stopsFile = File("raptor_data/stops.bin")
-    if (!stopsFile.exists()) {
-        println("Error : The file ${stopsFile.absolutePath} doesn't exist.")
+    val routesFile = File("raptor_data/routes.bin")
+
+    if (!stopsFile.exists() || !routesFile.exists()) {
+        println("Error: Required data files missing.")
         return
     }
 
-    println("Loading stops...")
+    println("Loading network...")
     val stops = NetworkLoader.loadStops(stopsFile)
-    println("${stops.size} stops loaded.")
+    val routes = NetworkLoader.loadRoutes(routesFile)
+    val network = io.raptor.model.Network(stops, routes)
+    println("${stops.size} stops and ${routes.size} routes loaded.")
 
-    val routesFile = File("raptor_data/routes.bin")
-    val routes = if (routesFile.exists()) {
-        println("Loading routes...")
-        NetworkLoader.loadRoutes(routesFile)
-    } else {
-        null
-    }
-    if (routes != null) {
-        println("${routes.size} routes loaded.")
-        println("\nAll network routes:")
-        routes.map { it.name }.distinct().sorted().forEach { name ->
-            println("- $name")
-        }
-    }
+    val originName = "Gare Part-Dieu V.Merle"
+    val destinationName = "Le Méridien"
+    val departureTime = 8 * 3600 + 0 * 60 // 08:00:00
 
-    val targetStopId = 9790
-    val stop = stops.find { it.name == "Marcy l'Etoile" }
+    val origin = stops.find { it.name == originName }
+    val destination = stops.find { it.name == destinationName }
 
-    if (stop != null) {
-        println("\nLines passing through stop $targetStopId (${stop.name}):")
-        if (stop.routeIds.isEmpty()) {
-            println("No lines found for this stop.")
+    if (origin != null && destination != null) {
+        // Collect all indices for origin and destination
+        val originIndices = stops.indices.filter { stops[it].name == originName }
+        val destinationIndices = stops.indices.filter { stops[it].name == destinationName }
+
+        val algorithm = io.raptor.core.RaptorAlgorithm(network, debug = false)
+        val bestArrival = algorithm.route(originIndices, destinationIndices, departureTime)
+
+        if (bestArrival == Int.MAX_VALUE) {
+            println("\nNo route found at 08:00:00. Trying at 00:00:00...")
+            algorithm.route(originIndices, destinationIndices, 0)
         } else {
-            stop.routeIds.forEach { routeId ->
-                val route = routes?.find { it.id == routeId }
-                if (route != null) {
-                    println("- Route ID: $routeId | Name: ${route.name}")
-                } else {
-                    println("- Route ID: $routeId")
+            println("\n=== ROUTE FOUND ===")
+            displayTime(bestArrival, departureTime)
+            
+            // Find the best destination index with the earliest arrival
+            val bestDestIndex = destinationIndices.minByOrNull { idx -> 
+                algorithm.getJourney(idx)?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
+            }
+            
+            if (bestDestIndex != null) {
+                val journey = algorithm.getJourney(bestDestIndex)
+                if (journey != null && journey.isNotEmpty()) {
+                    println("\n=== JOURNEY DETAIL ===")
+                    displayJourney(journey, stops)
                 }
             }
         }
     } else {
-        println("\nStop with ID $targetStopId not found.")
+        if (origin == null) println("Origin stop not found: $originName")
+        if (destination == null) println("Destination stop not found: $destinationName")
     }
+}
+
+fun displayTime(bestArrival: Int, departureTime: Int) {
+    val hours = bestArrival / 3600
+    val minutes = (bestArrival % 3600) / 60
+    val seconds = bestArrival % 60
+    println("Best arrival time: ${"%02d".format(hours)}:${"%02d".format(minutes)}:${"%02d".format(seconds)} ($bestArrival seconds)")
+
+    val travelTime = bestArrival - departureTime
+    println("Travel time: ${travelTime / 60} min ${travelTime % 60} sec")
+}
+
+fun displayJourney(journey: List<io.raptor.core.JourneyLeg>, stops: List<io.raptor.model.Stop>) {
+    for ((index, leg) in journey.withIndex()) {
+        val fromStop = stops[leg.fromStopIndex]
+        val toStop = stops[leg.toStopIndex]
+        val depTime = formatTime(leg.departureTime)
+        val arrTime = formatTime(leg.arrivalTime)
+        
+        if (leg.isTransfer) {
+            println("${index + 1}. 🚶 Transfer: ${fromStop.name} → ${toStop.name}")
+            println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+        } else {
+            println("${index + 1}. 🚍 Line ${leg.routeName} : ${fromStop.name} → ${toStop.name}")
+            println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+        }
+    }
+}
+
+fun formatTime(seconds: Int): String {
+    val h = seconds / 3600
+    val m = (seconds % 3600) / 60
+    val s = seconds % 60
+    return "%02d:%02d:%02d".format(h, m, s)
 }

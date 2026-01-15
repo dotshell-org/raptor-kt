@@ -12,8 +12,17 @@ class Network(
 
     // Quick access to a stop's index if needed
     private val stopIndexMap = stops.associateBy { it.id }
+    private val routeMap = routes.associateBy { it.id }
+    
+    // Index stops by name for implicit transfers
+    val stopsByName: Map<String, List<Int>> = stops.indices.groupBy { stops[it].name }
 
     fun getStop(id: Int): Stop? = stopIndexMap[id]
+
+    fun getStopIndex(id: Int): Int {
+        val stop = stopIndexMap[id]
+        return if (stop != null) stops.indexOf(stop) else -1
+    }
 
     /**
      * Identifies all routes that serve any of the given stops.
@@ -26,7 +35,6 @@ class Network(
                 routeIds.add(routeId)
             }
         }
-        // Map route IDs to actual route objects
-        return routeIds.mapNotNull { id -> routes.find { it.id == id } }.toSet()
+        return routeIds.mapNotNull { id -> routeMap[id] }.toSet()
     }
 }

@@ -3,84 +3,178 @@ package io.raptor.core
 import io.raptor.model.Network
 import io.raptor.model.Trip
 
-class RaptorAlgorithm(private val network: Network) {
-    fun route(originIndex: Int, destinationIndex: Int, departureTime: Int) {
-        val state = RaptorState(network, maxRounds = 10)
+class RaptorAlgorithm(private val network: Network, private val debug: Boolean = false) {
+    private var lastState: RaptorState? = null
+
+    fun route(originIndices: List<Int>, destinationIndices: List<Int>, departureTime: Int): Int {
+        val state = RaptorState(network, maxRounds = 5, debug = debug)
+        lastState = state
+
+        if (debug) {
+            println("Route search: ${network.stops[originIndices[0]].name} -> ${network.stops[destinationIndices[0]].name}")
+            println("Departure at ${formatTime(departureTime)}")
+        }
 
         // Step 1: Initialization (Round 0)
-        state.bestArrival[0][originIndex] = departureTime
-        state.markStop(originIndex)
+        for (idx in originIndices) {
+            state.bestArrival[0][idx] = departureTime
+            state.markStop(idx)
+        }
 
         // Step 2: Main loop through rounds
         for (k in 1..state.maxRounds) {
-            val markedInPreviousRound = state.getMarkedIndices()
-            if (markedInPreviousRound.isEmpty()) break // Stopping criteria
+            if (debug) {
+                println("[ROUND $k] Exploring routes...")
+            }
+            state.clearMarks() // Move current marks to previous, then clear current
 
-            state.clearMarks()
+            val markedFromPrevious = state.getMarkedInPreviousRound()
+
+            // Copy best arrivals from k-1 to k to ensure we don't lose improvements
+            state.copyArrivalTimesToNextRound(k)
 
             // Phase 1: Explore Routes
             exploreRoutes(state, k)
 
             // Phase 2: Explore Transfers
-            // (Apply walking distances from stops improved in current round k)
+            exploreTransfers(state, k)
+
+            val markedNow = state.getMarkedIndices()
+            if (markedNow.isEmpty()) {
+                break // Stopping criteria
+            }
         }
+
+        var finalBest = Int.MAX_VALUE
+        for (idx in destinationIndices) {
+            val arrival = state.getBestArrival(idx)
+            if (arrival < finalBest) finalBest = arrival
+        }
+
+        if (debug) {
+            if (finalBest == Int.MAX_VALUE) println("Destination not reached.")
+            else println("Best arrival: ${formatTime(finalBest)}")
+        }
+        return finalBest
     }
 
     private fun exploreRoutes(state: RaptorState, round: Int) {
-        // 1. Identify routes serving stops marked in the previous round
-        val markedFromPrevious = state.getMarkedIndices()
+        val markedFromPrevious = state.getMarkedInPreviousRound()
         val routesToExplore = network.getRoutesServingStops(markedFromPrevious)
 
         for (route in routesToExplore) {
             var currentTrip: Trip? = null
             var boardingIndex = -1
 
-            // 2. Traverse each stop in the route in order
+            var routeLogged = false
+
             for (i in 0 until route.stopIds.size) {
-                val stopIndex = route.stopIds[i]
+                val stopId = route.stopIds[i]
+                val stopIndex = network.getStopIndex(stopId)
 
                 // Can we improve our current trip by boarding at this stop?
-                if (state.isMarkedInPreviousRound(stopIndex)) {
+                if (stopIndex != -1 && state.isMarkedInPreviousRound(stopIndex)) {
                     val arrivalAtStop = state.bestArrival[round - 1][stopIndex]
                     val earliestTrip = findEarliestTrip(route, i, arrivalAtStop)
 
-                    // If this trip is better than the one we are currently on
                     if (earliestTrip != null && (currentTrip == null || earliestTrip.isEarlierThan(currentTrip))) {
                         currentTrip = earliestTrip
                         boardingIndex = i
+                        if (debug && !routeLogged) {
+                            println("  Line ${route.name}")
+                            routeLogged = true
+                        }
                     }
                 }
 
                 // 3. If we are on a trip, try to update the arrival time at the current stop
-                if (currentTrip != null) {
+                if (currentTrip != null && stopIndex != -1) {
                     val arrivalTime = currentTrip.stopTimes[i]
                     if (arrivalTime < state.bestArrival[round][stopIndex]) {
+                        if (debug) {
+                            println("    -> ${network.stops[stopIndex].name} à ${formatTime(arrivalTime)}")
+                        }
                         state.bestArrival[round][stopIndex] = arrivalTime
-                        state.markStop(stopIndex) // Mark for next round or transfers
+                        state.parent[round][stopIndex] = Tuple4(
+                            route.stopIds[boardingIndex].let { network.getStopIndex(it) },
+                            round - 1,
+                            route.name,
+                            currentTrip.stopTimes[boardingIndex]
+                        )
+                        state.markStop(stopIndex)
                     }
                 }
             }
         }
     }
 
-    /**
-     * Finds the earliest trip in a route that can be boarded at a given stop index,
-     * given an arrival time at that stop.
-     */
-    private fun findEarliestTrip(route: io.raptor.model.Route, stopIndex: Int, arrivalTime: Int): Trip? {
-        // Optimization: we want the trip that departs from 'stopIndex' as early as possible,
-        // but no earlier than 'arrivalTime'
+    private fun findEarliestTrip(route: io.raptor.model.Route, stopIndexInRoute: Int, arrivalTime: Int): Trip? {
         var earliestTrip: Trip? = null
 
         for (trip in route.trips) {
-            val departureFromStop = trip.stopTimes[stopIndex]
+            val departureFromStop = trip.stopTimes[stopIndexInRoute]
             if (departureFromStop >= arrivalTime) {
-                if (earliestTrip == null || departureFromStop < earliestTrip.stopTimes[stopIndex]) {
+                if (earliestTrip == null || departureFromStop < earliestTrip.stopTimes[stopIndexInRoute]) {
                     earliestTrip = trip
                 }
             }
         }
 
         return earliestTrip
+    }
+
+    private fun exploreTransfers(state: RaptorState, round: Int) {
+        val markedStops = state.getMarkedIndices()
+
+        for (stopIndex in markedStops) {
+            val arrivalTime = state.bestArrival[round][stopIndex]
+            if (arrivalTime == Int.MAX_VALUE) continue
+
+            val stop = network.stops[stopIndex]
+
+            // Explicit transfers
+            for (transfer in stop.transfers) {
+                val targetStopIndex = network.getStopIndex(transfer.targetStopId)
+                if (targetStopIndex == -1 || targetStopIndex == stopIndex) continue // Skip invalid or self-transfers
+                val arrivalAtTarget = arrivalTime + transfer.walkTime
+
+                if (arrivalAtTarget < state.bestArrival[round][targetStopIndex]) {
+                    if (debug) {
+                        println("  Walk (explicit) transfer: ${stop.name} -> ${network.stops[targetStopIndex].name} (${formatTime(arrivalAtTarget)})")
+                    }
+                    state.bestArrival[round][targetStopIndex] = arrivalAtTarget
+                    state.parent[round][targetStopIndex] = Tuple4(stopIndex, round, null, arrivalTime)
+                    state.markStop(targetStopIndex)
+                }
+            }
+            
+            // Implicit transfers: stops with the same name (default 120s transfer time)
+            val stopsWithSameName = network.stopsByName[stop.name] ?: emptyList()
+            for (otherStopIndex in stopsWithSameName) {
+                if (otherStopIndex == stopIndex) continue
+                
+                val arrivalAtTarget = arrivalTime + 120 // 2 minutes default transfer time
+                
+                if (arrivalAtTarget < state.bestArrival[round][otherStopIndex]) {
+                    if (debug) {
+                        println("  Implicit transfer : ${stop.name} -> ${network.stops[otherStopIndex].name} (${formatTime(arrivalAtTarget)})")
+                    }
+                    state.bestArrival[round][otherStopIndex] = arrivalAtTarget
+                    state.parent[round][otherStopIndex] = Tuple4(stopIndex, round, null, arrivalTime)
+                    state.markStop(otherStopIndex)
+                }
+            }
+        }
+    }
+
+    private fun formatTime(seconds: Int): String {
+        val h = seconds / 3600
+        val m = (seconds % 3600) / 60
+        val s = seconds % 60
+        return "%02d:%02d:%02d".format(h, m, s)
+    }
+
+    fun getJourney(destinationIndex: Int): List<io.raptor.core.JourneyLeg>? {
+        return lastState?.reconstructJourney(destinationIndex)
     }
 }
