@@ -15,7 +15,7 @@ class BinaryReader(file: File) {
         val bytes = ByteArray(4)
         buffer.get(bytes)
         val magic = String(bytes)
-        if (magic != expected) throw IllegalStateException("Mauvais format : attendu $expected, reçu $magic")
+        if (magic != expected) throw IllegalStateException("Bad format : expected $expected, got $magic")
     }
 
     fun readUInt16(): Int = buffer.short.toInt() and 0xFFFF

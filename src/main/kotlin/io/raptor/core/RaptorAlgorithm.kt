@@ -89,7 +89,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                     // Target pruning: can we even improve the best arrival at destination?
                     if (arrivalTime < state.bestArrival[round][stopIndex] && arrivalTime < currentBestAtDestination) {
                         if (debug) {
-                            println("    -> ${network.stops[stopIndex].name} à ${formatTime(arrivalTime)}")
+                            println("    -> ${network.stops[stopIndex].name} at ${formatTime(arrivalTime)}")
                         }
                         state.bestArrival[round][stopIndex] = arrivalTime
                         state.parent[round][stopIndex] = Tuple4(
@@ -174,7 +174,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 
                 if (arrivalAtTarget < state.bestArrival[round][otherStopIndex]) {
                     if (debug) {
-                        println("  Implicit transfer : ${stop.name} -> ${network.stops[otherStopIndex].name} (${formatTime(arrivalAtTarget)})")
+                        println("  Implicit transfer: ${stop.name} -> ${network.stops[otherStopIndex].name} (${formatTime(arrivalAtTarget)})")
                     }
                     state.bestArrival[round][otherStopIndex] = arrivalAtTarget
                     state.parent[round][otherStopIndex] = Tuple4(stopIndex, round, null, arrivalTime)
