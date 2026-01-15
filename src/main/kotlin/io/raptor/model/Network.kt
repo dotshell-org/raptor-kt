@@ -5,7 +5,7 @@ package io.raptor.model
  */
 class Network(
     val stops: List<Stop>,
-    val routes: List<Route>
+    routes: List<Route>
 ) {
     // Total number of stops in the network
     val stopCount: Int = stops.size
@@ -16,8 +16,6 @@ class Network(
     
     // Index stops by name for implicit transfers
     val stopsByName: Map<String, List<Int>> = stops.indices.groupBy { stops[it].name }
-
-    fun getStop(id: Int): Stop? = stopIndexMap[id]
 
     fun getStopIndex(id: Int): Int {
         val stop = stopIndexMap[id]

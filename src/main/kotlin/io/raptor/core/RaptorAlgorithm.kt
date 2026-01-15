@@ -7,7 +7,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
     private var lastState: RaptorState? = null
 
     fun route(originIndices: List<Int>, destinationIndices: List<Int>, departureTime: Int): Int {
-        val state = RaptorState(network, maxRounds = 5, debug = debug)
+        val state = RaptorState(network, maxRounds = 5)
         lastState = state
 
         if (debug) {
@@ -102,9 +102,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                         
                         // If this stop is one of our destinations, update currentBestAtDestination
                         if (destinationIndices.contains(stopIndex)) {
-                            if (arrivalTime < currentBestAtDestination) {
-                                currentBestAtDestination = arrivalTime
-                            }
+                            currentBestAtDestination = arrivalTime
                         }
                     }
                 }

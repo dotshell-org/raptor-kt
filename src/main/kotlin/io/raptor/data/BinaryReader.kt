@@ -21,7 +21,6 @@ class BinaryReader(file: File) {
     fun readUInt16(): Int = buffer.short.toInt() and 0xFFFF
     fun readUInt32(): Int = buffer.int
     fun readInt32(): Int = buffer.int
-    fun readUInt64(): Long = buffer.long
     fun readFloat64(): Double = buffer.double
 
     fun readUTF8(length: Int): String {
@@ -30,5 +29,4 @@ class BinaryReader(file: File) {
         return String(bytes, Charsets.UTF_8)
     }
 
-    fun hasRemaining(): Boolean = buffer.hasRemaining()
 }

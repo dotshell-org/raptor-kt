@@ -8,7 +8,7 @@ object NetworkLoader {
     fun loadStops(file: File): List<Stop> {
         val reader = BinaryReader(file)
         reader.readMagic("RSTS")
-        val version = reader.readUInt16()
+        reader.readUInt16()
         val count = reader.readUInt32()
 
         return List(count) {
@@ -33,7 +33,7 @@ object NetworkLoader {
     fun loadRoutes(file: File): List<Route> {
         val reader = BinaryReader(file)
         reader.readMagic("RRTS")
-        val version = reader.readUInt16()
+        reader.readUInt16()
         val count = reader.readUInt32()
 
         return List(count) {

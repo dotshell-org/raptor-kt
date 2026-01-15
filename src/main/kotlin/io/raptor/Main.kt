@@ -49,7 +49,7 @@ fun main() {
                 
                 if (bestDestIndex != null) {
                     val journey = algorithm.getJourney(bestDestIndex, k)
-                    if (journey != null && journey.isNotEmpty()) {
+                    if (!journey.isNullOrEmpty()) {
                         val arrivalTime = journey.last().arrivalTime
                         if (arrivalTime < lastBestArrival) {
                             paretoJourneys.add(journey)
@@ -71,16 +71,6 @@ fun main() {
         if (origin == null) println("Origin stop not found: $originName")
         if (destination == null) println("Destination stop not found: $destinationName")
     }
-}
-
-fun displayTime(bestArrival: Int, departureTime: Int) {
-    val hours = bestArrival / 3600
-    val minutes = (bestArrival % 3600) / 60
-    val seconds = bestArrival % 60
-    println("Best arrival time: ${"%02d".format(hours)}:${"%02d".format(minutes)}:${"%02d".format(seconds)} ($bestArrival seconds)")
-
-    val travelTime = bestArrival - departureTime
-    println("Travel time: ${travelTime / 60} min ${travelTime % 60} sec")
 }
 
 fun displayJourney(journey: List<io.raptor.core.JourneyLeg>, stops: List<io.raptor.model.Stop>) {

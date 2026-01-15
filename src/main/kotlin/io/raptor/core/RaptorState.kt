@@ -21,7 +21,7 @@ data class Tuple4<out A, out B, out C, out D>(
 /**
  * Tracks the state of a single routing request across rounds.
  */
-class RaptorState(val network: Network, val maxRounds: Int, val debug: Boolean = false) {
+class RaptorState(val network: Network, val maxRounds: Int) {
     // bestArrival[round][stopIndex] stores the earliest arrival time
     // Int.MAX_VALUE represents infinity (unreachable)
     val bestArrival: Array<IntArray> = Array(maxRounds + 1) {
@@ -40,8 +40,6 @@ class RaptorState(val network: Network, val maxRounds: Int, val debug: Boolean =
     fun markStop(stopIndex: Int) {
         markedStops[stopIndex] = true
     }
-
-    fun isMarked(stopIndex: Int): Boolean = markedStops[stopIndex]
 
     fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
 
@@ -62,7 +60,7 @@ class RaptorState(val network: Network, val maxRounds: Int, val debug: Boolean =
      * Propagates best arrival times from round k-1 to round k.
      */
     fun copyArrivalTimesToNextRound(round: Int) {
-        if (round <= 0 || round > maxRounds) return
+        if (round !in 1..maxRounds) return
         System.arraycopy(bestArrival[round - 1], 0, bestArrival[round], 0, network.stopCount)
     }
 
@@ -99,11 +97,8 @@ class RaptorState(val network: Network, val maxRounds: Int, val debug: Boolean =
 
         // Reconstruct backwards from destination
         while (currentRound > 0 && currentStop >= 0) {
-            val parentInfo = parent[currentRound][currentStop]
-            if (parentInfo == null) {
-                // No more parents, we reached the origin
-                break
-            }
+            val parentInfo = parent[currentRound][currentStop] ?: // No more parents, we reached the origin
+            break
 
             val (parentStop, parentRound, routeName, departureTime) = parentInfo
             legs.add(
