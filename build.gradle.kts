@@ -23,7 +23,8 @@ dependencies {
 
 application {
     // The main class to run
-    mainClass.set("io.raptor.MainKt")
+    val mainClassName = System.getProperty("mainClass") ?: "io.raptor.MainKt"
+    mainClass.set(mainClassName)
 }
 
 tasks.test {

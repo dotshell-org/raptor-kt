@@ -15,6 +15,9 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             println("Departure at ${formatTime(departureTime)}")
         }
 
+        // Target pruning value
+        var bestArrivalAtDestination = Int.MAX_VALUE
+
         // Step 1: Initialization (Round 0)
         for (idx in originIndices) {
             state.bestArrival[0][idx] = departureTime
@@ -28,16 +31,21 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             }
             state.clearMarks() // Move current marks to previous, then clear current
 
-            val markedFromPrevious = state.getMarkedInPreviousRound()
-
             // Copy best arrivals from k-1 to k to ensure we don't lose improvements
             state.copyArrivalTimesToNextRound(k)
 
             // Phase 1: Explore Routes
-            exploreRoutes(state, k)
+            exploreRoutes(state, k, destinationIndices, bestArrivalAtDestination)
 
             // Phase 2: Explore Transfers
             exploreTransfers(state, k)
+
+            // Update best arrival at destination for pruning in next round
+            for (destIdx in destinationIndices) {
+                if (state.bestArrival[k][destIdx] < bestArrivalAtDestination) {
+                    bestArrivalAtDestination = state.bestArrival[k][destIdx]
+                }
+            }
 
             val markedNow = state.getMarkedIndices()
             if (markedNow.isEmpty()) {
@@ -58,7 +66,8 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         return finalBest
     }
 
-    private fun exploreRoutes(state: RaptorState, round: Int) {
+    private fun exploreRoutes(state: RaptorState, round: Int, destinationIndices: List<Int>, bestArrivalAtDestination: Int) {
+        var currentBestAtDestination = bestArrivalAtDestination
         val markedFromPrevious = state.getMarkedInPreviousRound()
         val routesToExplore = network.getRoutesServingStops(markedFromPrevious)
 
@@ -71,26 +80,14 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             for (i in 0 until route.stopIds.size) {
                 val stopId = route.stopIds[i]
                 val stopIndex = network.getStopIndex(stopId)
+                if (stopIndex == -1) continue
 
-                // Can we improve our current trip by boarding at this stop?
-                if (stopIndex != -1 && state.isMarkedInPreviousRound(stopIndex)) {
-                    val arrivalAtStop = state.bestArrival[round - 1][stopIndex]
-                    val earliestTrip = findEarliestTrip(route, i, arrivalAtStop)
-
-                    if (earliestTrip != null && (currentTrip == null || earliestTrip.isEarlierThan(currentTrip))) {
-                        currentTrip = earliestTrip
-                        boardingIndex = i
-                        if (debug && !routeLogged) {
-                            println("  Line ${route.name}")
-                            routeLogged = true
-                        }
-                    }
-                }
-
-                // 3. If we are on a trip, try to update the arrival time at the current stop
-                if (currentTrip != null && stopIndex != -1) {
+                // 1. If we are on a trip, try to update the arrival time at the current stop
+                if (currentTrip != null) {
                     val arrivalTime = currentTrip.stopTimes[i]
-                    if (arrivalTime < state.bestArrival[round][stopIndex]) {
+                    
+                    // Target pruning: can we even improve the best arrival at destination?
+                    if (arrivalTime < state.bestArrival[round][stopIndex] && arrivalTime < currentBestAtDestination) {
                         if (debug) {
                             println("    -> ${network.stops[stopIndex].name} à ${formatTime(arrivalTime)}")
                         }
@@ -102,6 +99,28 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                             currentTrip.stopTimes[boardingIndex]
                         )
                         state.markStop(stopIndex)
+                        
+                        // If this stop is one of our destinations, update currentBestAtDestination
+                        if (destinationIndices.contains(stopIndex)) {
+                            if (arrivalTime < currentBestAtDestination) {
+                                currentBestAtDestination = arrivalTime
+                            }
+                        }
+                    }
+                }
+
+                // 2. Can we improve our current trip by boarding at this stop?
+                if (state.isMarkedInPreviousRound(stopIndex)) {
+                    val arrivalAtStop = state.bestArrival[round - 1][stopIndex]
+                    val earliestTrip = findEarliestTrip(route, i, arrivalAtStop)
+
+                    if (earliestTrip != null && (currentTrip == null || earliestTrip.isEarlierThan(currentTrip))) {
+                        currentTrip = earliestTrip
+                        boardingIndex = i
+                        if (debug && !routeLogged) {
+                            println("  Line ${route.name}")
+                            routeLogged = true
+                        }
                     }
                 }
             }
@@ -174,7 +193,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         return "%02d:%02d:%02d".format(h, m, s)
     }
 
-    fun getJourney(destinationIndex: Int): List<io.raptor.core.JourneyLeg>? {
-        return lastState?.reconstructJourney(destinationIndex)
+    fun getJourney(destinationIndex: Int, round: Int? = null): List<JourneyLeg>? {
+        return lastState?.reconstructJourney(destinationIndex, round)
     }
 }

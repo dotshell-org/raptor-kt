@@ -88,10 +88,14 @@ class RaptorState(val network: Network, val maxRounds: Int, val debug: Boolean =
         return bestRound
     }
 
-    fun reconstructJourney(destinationIndex: Int): List<JourneyLeg> {
+    fun reconstructJourney(destinationIndex: Int, round: Int? = null): List<JourneyLeg> {
         val legs = mutableListOf<JourneyLeg>()
-        var currentRound = getBestRound(destinationIndex)
+        var currentRound = round ?: getBestRound(destinationIndex)
         var currentStop = destinationIndex
+
+        if (currentRound == -1 || bestArrival[currentRound][destinationIndex] == Int.MAX_VALUE) {
+            return emptyList()
+        }
 
         // Reconstruct backwards from destination
         while (currentRound > 0 && currentStop >= 0) {

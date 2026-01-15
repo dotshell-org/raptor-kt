@@ -18,8 +18,8 @@ fun main() {
     val network = io.raptor.model.Network(stops, routes)
     println("${stops.size} stops and ${routes.size} routes loaded.")
 
-    val originName = "Gare Part-Dieu V.Merle"
-    val destinationName = "Le Méridien"
+    val originName = "Le Méridien"
+    val destinationName = "Hôtel Région Montrochet"
     val departureTime = 8 * 3600 + 0 * 60 // 08:00:00
 
     val origin = stops.find { it.name == originName }
@@ -31,26 +31,40 @@ fun main() {
         val destinationIndices = stops.indices.filter { stops[it].name == destinationName }
 
         val algorithm = io.raptor.core.RaptorAlgorithm(network, debug = false)
-        val bestArrival = algorithm.route(originIndices, destinationIndices, departureTime)
+        val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime)
 
-        if (bestArrival == Int.MAX_VALUE) {
+        if (bestArrivalAtAnyRound == Int.MAX_VALUE) {
             println("\nNo route found at 08:00:00. Trying at 00:00:00...")
             algorithm.route(originIndices, destinationIndices, 0)
         } else {
-            println("\n=== ROUTE FOUND ===")
-            displayTime(bestArrival, departureTime)
+            val paretoJourneys = mutableListOf<List<io.raptor.core.JourneyLeg>>()
+            var lastBestArrival = Int.MAX_VALUE
             
-            // Find the best destination index with the earliest arrival
-            val bestDestIndex = destinationIndices.minByOrNull { idx -> 
-                algorithm.getJourney(idx)?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
-            }
-            
-            if (bestDestIndex != null) {
-                val journey = algorithm.getJourney(bestDestIndex)
-                if (journey != null && journey.isNotEmpty()) {
-                    println("\n=== JOURNEY DETAIL ===")
-                    displayJourney(journey, stops)
+            // Collect best journey for each number of transfers (round)
+            for (k in 1..5) {
+                val bestDestIndex = destinationIndices.minByOrNull { idx -> 
+                    val journey = algorithm.getJourney(idx, k)
+                    journey?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
                 }
+                
+                if (bestDestIndex != null) {
+                    val journey = algorithm.getJourney(bestDestIndex, k)
+                    if (journey != null && journey.isNotEmpty()) {
+                        val arrivalTime = journey.last().arrivalTime
+                        if (arrivalTime < lastBestArrival) {
+                            paretoJourneys.add(journey)
+                            lastBestArrival = arrivalTime
+                        }
+                    }
+                }
+            }
+
+            println("\n=== ROUTES FOUND (Pareto Optimal) ===")
+            for ((idx, journey) in paretoJourneys.withIndex()) {
+                val arrival = journey.last().arrivalTime
+                val transfers = journey.count { !it.isTransfer } - 1
+                println("\nOption ${idx + 1}: Arrival ${formatTime(arrival)} | $transfers transfers")
+                displayJourney(journey, stops)
             }
         }
     } else {
