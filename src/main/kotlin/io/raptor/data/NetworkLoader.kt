@@ -1,12 +1,12 @@
 package io.raptor.data
 
 import io.raptor.model.*
-import java.io.File
+import java.io.InputStream
 
 object NetworkLoader {
 
-    fun loadStops(file: File): List<Stop> {
-        val reader = BinaryReader(file)
+    fun loadStops(inputStream: InputStream): List<Stop> {
+        val reader = BinaryReader(inputStream)
         reader.readMagic("RSTS")
         reader.readUInt16()
         val count = reader.readUInt32()
@@ -30,8 +30,8 @@ object NetworkLoader {
         }
     }
 
-    fun loadRoutes(file: File): List<Route> {
-        val reader = BinaryReader(file)
+    fun loadRoutes(inputStream: InputStream): List<Route> {
+        val reader = BinaryReader(inputStream)
         reader.readMagic("RRTS")
         reader.readUInt16()
         val count = reader.readUInt32()

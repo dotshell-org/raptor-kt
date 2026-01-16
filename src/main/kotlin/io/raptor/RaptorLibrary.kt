@@ -5,26 +5,19 @@ import io.raptor.core.RaptorAlgorithm
 import io.raptor.data.NetworkLoader
 import io.raptor.model.Network
 import io.raptor.model.Stop
-import java.io.File
+import java.io.InputStream
 
 /**
  * RAPTOR library for routing search.
- * @param dataDirPath Path to the folder containing .bin files (stops.bin, routes.bin).
+ * Use with Android: Pass InputStream objects from assets.
+ * Example: RaptorLibrary(context.assets.open("stops.bin"), context.assets.open("routes.bin"))
  */
-class RaptorLibrary(dataDirPath: String) {
+class RaptorLibrary(stopsInputStream: InputStream, routesInputStream: InputStream) {
     private val network: Network
 
     init {
-        val dataDir = File(dataDirPath)
-        val stopsFile = File(dataDir, "stops.bin")
-        val routesFile = File(dataDir, "routes.bin")
-
-        if (!stopsFile.exists() || !routesFile.exists()) {
-            throw IllegalArgumentException("Missing data files in $dataDirPath")
-        }
-
-        val stops = NetworkLoader.loadStops(stopsFile)
-        val routes = NetworkLoader.loadRoutes(routesFile)
+        val stops = NetworkLoader.loadStops(stopsInputStream)
+        val routes = NetworkLoader.loadRoutes(routesInputStream)
         network = Network(stops, routes)
     }
 

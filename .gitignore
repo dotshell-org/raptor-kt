@@ -4,3 +4,12 @@
 build/
 
 raptor_data/
+
+# Sensitive files - do not commit
+gradle.properties
+setup-env.sh
+local.properties
+*.keystore
+*.jks
+secring.gpg
+java_pid*

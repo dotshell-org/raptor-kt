@@ -1,0 +1,15 @@
+# Fichier d'exemple pour gradle.properties local (ne pas commiter)
+# Copiez ce fichier vers gradle.properties et remplissez vos valeurs
+
+# Project
+android.useAndroidX=true
+android.enableJetifier=false
+
+# Signing
+signing.keyId=XXXXXXXXX
+signing.password=XXXXXXXXX
+signing.secretKeyRingFile=/path/to/secret
+
+# OSSRH Credentials
+ossrhUsername=XXXXXXXXX
+ossrhPassword=XXXXXXXXX

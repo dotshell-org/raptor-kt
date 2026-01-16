@@ -1,11 +1,11 @@
 package io.raptor.data
 
-import java.io.File
+import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-class BinaryReader(file: File) {
-    private val buffer: ByteBuffer = ByteBuffer.wrap(file.readBytes())
+class BinaryReader(inputStream: InputStream) {
+    private val buffer: ByteBuffer = ByteBuffer.wrap(inputStream.readBytes())
 
     init {
         buffer.order(ByteOrder.LITTLE_ENDIAN)
