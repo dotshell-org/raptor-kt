@@ -14,6 +14,7 @@ plugins {
     kotlin("android") version "2.1.0"
     id("maven-publish")
     id("signing")
+    id("com.gradleup.nmcp") version "0.0.8"
 }
 
 group = "eu.dotshell"
@@ -104,16 +105,13 @@ publishing {
             }
         }
     }
-    
-    repositories {
-        maven {
-            name = "OSSRH"
-            url = uri("https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/")
-            credentials {
-                username = findProperty("ossrhUsername") as String? ?: System.getenv("OSSRH_USERNAME")
-                password = findProperty("ossrhPassword") as String? ?: System.getenv("OSSRH_PASSWORD")
-            }
-        }
+}
+
+nmcp {
+    publishAllProjectsProbablyBreakingProjectIsolation {
+        username = findProperty("ossrhUsername") as String? ?: System.getenv("OSSRH_USERNAME")
+        password = findProperty("ossrhPassword") as String? ?: System.getenv("OSSRH_PASSWORD")
+        publicationType = "AUTOMATIC"
     }
 }
 
