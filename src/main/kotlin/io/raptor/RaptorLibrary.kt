@@ -87,6 +87,11 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
      * Searches for optimized paths between stop identifiers.
      * Returns a list of journeys (Pareto-optimal with respect to the number of transfers).
      * Uses the currently active period.
+     * 
+     * @param originStopIds List of origin stop identifiers
+     * @param destinationStopIds List of destination stop identifiers
+     * @param departureTime Departure time in seconds from midnight
+     * @param maxRounds Maximum number of transfers + 1
      */
     fun getOptimizedPaths(
         originStopIds: List<Int>,
@@ -123,6 +128,99 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
                 if (!journey.isNullOrEmpty()) {
                     val arrivalTime = journey.last().arrivalTime
                     if (arrivalTime < lastBestArrival) {
+                        paretoJourneys.add(journey)
+                        lastBestArrival = arrivalTime
+                    }
+                }
+            }
+        }
+
+        return paretoJourneys
+    }
+
+    /**
+     * Searches for optimized paths that arrive before a specified time.
+     * Uses binary search to find the latest possible departure that arrives on time.
+     * Returns a list of journeys (Pareto-optimal with respect to the number of transfers).
+     * 
+     * @param originStopIds List of origin stop identifiers
+     * @param destinationStopIds List of destination stop identifiers
+     * @param arrivalTime Desired arrival time in seconds from midnight
+     * @param maxRounds Maximum number of transfers + 1
+     * @param searchWindowMinutes How far back to search for departures (default: 120 minutes)
+     */
+    fun getOptimizedPathsArriveBy(
+        originStopIds: List<Int>,
+        destinationStopIds: List<Int>,
+        arrivalTime: Int,
+        maxRounds: Int = 5,
+        searchWindowMinutes: Int = 120
+    ): List<List<JourneyLeg>> {
+        val network = getCurrentNetwork()
+        val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+        val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+
+        if (originIndices.isEmpty() || destinationIndices.isEmpty()) {
+            return emptyList()
+        }
+
+        val searchWindowSeconds = searchWindowMinutes * 60
+        val earliestDeparture = maxOf(0, arrivalTime - searchWindowSeconds)
+        
+        // Binary search to find the latest departure that arrives on time
+        var low = earliestDeparture
+        var high = arrivalTime
+        var bestJourneys: List<List<JourneyLeg>> = emptyList()
+        var bestDepartureTime = -1
+
+        while (low <= high) {
+            val mid = (low + high) / 2
+            val algorithm = RaptorAlgorithm(network, debug = false)
+            val bestArrival = algorithm.route(originIndices, destinationIndices, mid)
+
+            if (bestArrival <= arrivalTime) {
+                // This departure works, try a later one
+                val journeys = extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
+                if (journeys.isNotEmpty()) {
+                    val latestDeparture = journeys.maxOf { it.first().departureTime }
+                    if (latestDeparture > bestDepartureTime) {
+                        bestDepartureTime = latestDeparture
+                        bestJourneys = journeys
+                    }
+                }
+                low = mid + 60 // Move forward by 1 minute
+            } else {
+                // Arrives too late, try an earlier departure
+                high = mid - 60
+            }
+        }
+
+        return bestJourneys
+    }
+
+    /**
+     * Helper function to extract Pareto-optimal journeys that arrive before a given time.
+     */
+    private fun extractParetoJourneys(
+        algorithm: RaptorAlgorithm,
+        destinationIndices: List<Int>,
+        maxRounds: Int,
+        maxArrivalTime: Int
+    ): List<List<JourneyLeg>> {
+        val paretoJourneys = mutableListOf<List<JourneyLeg>>()
+        var lastBestArrival = Int.MAX_VALUE
+
+        for (k in 1..maxRounds) {
+            val bestDestIndex = destinationIndices.minByOrNull { idx ->
+                val journey = algorithm.getJourney(idx, k)
+                journey?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
+            }
+
+            if (bestDestIndex != null) {
+                val journey = algorithm.getJourney(bestDestIndex, k)
+                if (!journey.isNullOrEmpty()) {
+                    val arrivalTime = journey.last().arrivalTime
+                    if (arrivalTime <= maxArrivalTime && arrivalTime < lastBestArrival) {
                         paretoJourneys.add(journey)
                         lastBestArrival = arrivalTime
                     }

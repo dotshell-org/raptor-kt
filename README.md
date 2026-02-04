@@ -78,3 +78,25 @@ val journeys = raptor.getOptimizedPaths(
 // Get current active period
 val currentPeriod = raptor.getCurrentPeriod() // Returns: "summer"
 ```
+
+### Arrive-By Search
+
+You can also search for routes that arrive before a specific time (useful for "I need to be there by 9am" scenarios):
+
+```kotlin
+// Find the best routes to arrive by 09:00
+val arrivalTime = 9 * 3600 // 09:00:00 in seconds
+
+val journeys = raptor.getOptimizedPathsArriveBy(
+    originStopIds = originStops.map { it.id },
+    destinationStopIds = destStops.map { it.id },
+    arrivalTime = arrivalTime,
+    searchWindowMinutes = 120 // Search departures up to 2 hours before arrival time
+)
+
+// The returned journeys will arrive at or before 09:00
+// with the latest possible departure time
+for (journey in journeys) {
+    raptor.displayJourney(journey)
+}
+```
