@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kt:1.0.0")
+    implementation("eu.dotshell:raptor-kt:1.1.0")
 }
 ```
 
