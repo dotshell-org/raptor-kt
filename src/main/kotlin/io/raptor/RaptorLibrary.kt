@@ -8,22 +8,85 @@ import io.raptor.model.Stop
 import java.io.InputStream
 
 /**
- * RAPTOR library for routing search.
- * Use with Android: Pass InputStream objects from assets.
- * Example: RaptorLibrary(context.assets.open("stops.bin"), context.assets.open("routes.bin"))
+ * Data class representing a pair of input streams for a specific time period
+ * @param periodId Identifier for this time period (e.g., "winter2024", "summer2024")
+ * @param stopsInputStream Stream for the stops binary file
+ * @param routesInputStream Stream for the routes binary file
  */
-class RaptorLibrary(stopsInputStream: InputStream, routesInputStream: InputStream) {
-    private val network: Network
+data class PeriodData(
+    val periodId: String,
+    val stopsInputStream: InputStream,
+    val routesInputStream: InputStream
+)
+
+/**
+ * RAPTOR library for routing search with support for multiple time periods.
+ * Use with Android: Pass a list of PeriodData objects from assets.
+ * Example: 
+ * ```
+ * RaptorLibrary(listOf(
+ *     PeriodData("winter", context.assets.open("stops_winter.bin"), context.assets.open("routes_winter.bin")),
+ *     PeriodData("summer", context.assets.open("stops_summer.bin"), context.assets.open("routes_summer.bin"))
+ * ))
+ * ```
+ */
+class RaptorLibrary(periodDataList: List<PeriodData>) {
+    private val networks: Map<String, Network>
+    private var currentPeriodId: String
 
     init {
-        val stops = NetworkLoader.loadStops(stopsInputStream)
-        val routes = NetworkLoader.loadRoutes(routesInputStream)
-        network = Network(stops, routes)
+        require(periodDataList.isNotEmpty()) { "At least one period data must be provided" }
+        
+        networks = periodDataList.associate { periodData ->
+            val stops = NetworkLoader.loadStops(periodData.stopsInputStream)
+            val routes = NetworkLoader.loadRoutes(periodData.routesInputStream)
+            periodData.periodId to Network(stops, routes)
+        }
+        
+        // Par défaut, utilise la première période
+        currentPeriodId = periodDataList.first().periodId
     }
+    
+    /**
+     * Alternative constructor for single period (backward compatibility)
+     */
+    constructor(stopsInputStream: InputStream, routesInputStream: InputStream) : this(
+        listOf(PeriodData("default", stopsInputStream, routesInputStream))
+    )
+    
+    /**
+     * Sets the active period for route calculations
+     * @param periodId The identifier of the period to use
+     * @return true if the period was found and set, false otherwise
+     */
+    fun setPeriod(periodId: String): Boolean {
+        return if (networks.containsKey(periodId)) {
+            currentPeriodId = periodId
+            true
+        } else {
+            false
+        }
+    }
+    
+    /**
+     * Gets the currently active period identifier
+     */
+    fun getCurrentPeriod(): String = currentPeriodId
+    
+    /**
+     * Gets all available period identifiers
+     */
+    fun getAvailablePeriods(): Set<String> = networks.keys
+    
+    /**
+     * Gets the network for the current period
+     */
+    private fun getCurrentNetwork(): Network = networks[currentPeriodId]!!
 
     /**
      * Searches for optimized paths between stop identifiers.
      * Returns a list of journeys (Pareto-optimal with respect to the number of transfers).
+     * Uses the currently active period.
      */
     fun getOptimizedPaths(
         originStopIds: List<Int>,
@@ -31,6 +94,7 @@ class RaptorLibrary(stopsInputStream: InputStream, routesInputStream: InputStrea
         departureTime: Int,
         maxRounds: Int = 5
     ): List<List<JourneyLeg>> {
+        val network = getCurrentNetwork()
         val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
         val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
 
@@ -70,9 +134,10 @@ class RaptorLibrary(stopsInputStream: InputStream, routesInputStream: InputStrea
     }
 
     /**
-     * Searches for stops by their name.
+     * Searches for stops by their name in the current period.
      */
     fun searchStopsByName(name: String): List<Stop> {
+        val network = getCurrentNetwork()
         return network.stops.filter { it.name.contains(name, ignoreCase = true) }
     }
 
@@ -119,6 +184,7 @@ class RaptorLibrary(stopsInputStream: InputStream, routesInputStream: InputStrea
      * Displays a journey in a readable format.
      */
     fun displayJourney(journey: List<JourneyLeg>, showIntermediateStops: Boolean = false) {
+        val network = getCurrentNetwork()
         val stops = network.stops
         for ((index, leg) in journey.withIndex()) {
             val fromStop = stops[leg.fromStopIndex]

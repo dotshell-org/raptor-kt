@@ -16,6 +16,8 @@ dependencies {
 
 ## Usage (Android)
 
+### Simple Usage (Single Period)
+
 ```kotlin
 // Place your stops.bin and routes.bin files in assets folder
 val raptor = RaptorLibrary(
@@ -39,4 +41,40 @@ val journeys = raptor.getOptimizedPaths(
 for (journey in journeys) {
     raptor.displayJourney(journey)
 }
+```
+
+### Multi-Period Support
+
+If you have multiple sets of transit data for different time periods (e.g., winter/summer schedules), you can load them all at once:
+
+```kotlin
+// Load multiple periods
+val raptor = RaptorLibrary(listOf(
+    PeriodData(
+        periodId = "winter",
+        stopsInputStream = assets.open("stops_winter.bin"),
+        routesInputStream = assets.open("routes_winter.bin")
+    ),
+    PeriodData(
+        periodId = "summer",
+        stopsInputStream = assets.open("stops_summer.bin"),
+        routesInputStream = assets.open("routes_summer.bin")
+    )
+))
+
+// Check available periods
+val periods = raptor.getAvailablePeriods() // Returns: ["winter", "summer"]
+
+// Switch to a specific period
+raptor.setPeriod("summer")
+
+// All subsequent queries will use the summer schedule
+val journeys = raptor.getOptimizedPaths(
+    originStopIds = originStops.map { it.id },
+    destinationStopIds = destStops.map { it.id },
+    departureTime = departureTime
+)
+
+// Get current active period
+val currentPeriod = raptor.getCurrentPeriod() // Returns: "summer"
 ```
