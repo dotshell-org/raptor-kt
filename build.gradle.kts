@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "eu.dotshell"
-version = "1.0.0"
+version = "1.1.0"
 
 android {
     namespace = "eu.dotshell.raptor"
@@ -71,7 +71,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "eu.dotshell"
             artifactId = "raptor-kt"
-            version = "1.0.0"
+            version = "1.1.0"
 
             afterEvaluate {
                 from(components["release"])
@@ -125,7 +125,6 @@ signing {
         extra["signing.keyId"] = signingKeyId
         extra["signing.password"] = signingPassword
         extra["signing.secretKeyRingFile"] = signingKeyRingFile
+        sign(publishing.publications["release"])
     }
-    
-    sign(publishing.publications["release"])
 }
