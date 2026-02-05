@@ -58,12 +58,19 @@ android {
     }
 }
 
+val demoRuntime = configurations.create("demoRuntime") {
+    isCanBeResolved = true
+    isCanBeConsumed = false
+}
+
 dependencies {
     implementation(kotlin("stdlib"))
     
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.5")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
+
+    demoRuntime(kotlin("stdlib"))
 }
 
 publishing {
@@ -127,4 +134,14 @@ signing {
         extra["signing.secretKeyRingFile"] = signingKeyRingFile
         sign(publishing.publications["release"])
     }
+}
+
+tasks.register<JavaExec>("runRouteFilterDemo") {
+    group = "verification"
+    description = "Runs a route filter demo that prints results to the terminal."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.RouteFilterDemo")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
 }

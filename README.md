@@ -100,3 +100,33 @@ for (journey in journeys) {
     raptor.displayJourney(journey)
 }
 ```
+
+### Route Filtering (Whitelist/Blacklist)
+
+You can restrict which lines are eligible during routing using route names or ids. This is useful to keep a journey within the same fare system or to exclude specific lines.
+
+```kotlin
+// Allow only specific lines by name
+val journeys = raptor.getOptimizedPaths(
+    originStopIds = originStops.map { it.id },
+    destinationStopIds = destStops.map { it.id },
+    departureTime = departureTime,
+    allowedRouteNames = setOf("JD2", "JD3", "RX")
+)
+
+// Exclude specific lines by id
+val journeysArriveBy = raptor.getOptimizedPathsArriveBy(
+    originStopIds = originStops.map { it.id },
+    destinationStopIds = destStops.map { it.id },
+    arrivalTime = arrivalTime,
+    blockedRouteIds = setOf(12, 27)
+)
+
+// Works with searchAndDisplayRoute too
+raptor.searchAndDisplayRoute(
+    originName = "Perrache",
+    destinationName = "Cuire",
+    departureTime = departureTime,
+    allowedRouteNames = setOf("JD2", "JD3", "RX")
+)
+```

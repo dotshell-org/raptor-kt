@@ -97,7 +97,11 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         originStopIds: List<Int>,
         destinationStopIds: List<Int>,
         departureTime: Int,
-        maxRounds: Int = 5
+        maxRounds: Int = 5,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
         val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
@@ -108,7 +112,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         }
 
         val algorithm = RaptorAlgorithm(network, debug = false)
-        val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime)
+        val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
+        val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime, routeFilter)
 
         if (bestArrivalAtAnyRound == Int.MAX_VALUE) {
             return emptyList()
@@ -154,7 +159,11 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         destinationStopIds: List<Int>,
         arrivalTime: Int,
         maxRounds: Int = 5,
-        searchWindowMinutes: Int = 120
+        searchWindowMinutes: Int = 120,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
         val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
@@ -166,6 +175,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         val searchWindowSeconds = searchWindowMinutes * 60
         val earliestDeparture = maxOf(0, arrivalTime - searchWindowSeconds)
+        val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         
         // Binary search to find the latest departure that arrives on time
         var low = earliestDeparture
@@ -176,7 +186,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         while (low <= high) {
             val mid = (low + high) / 2
             val algorithm = RaptorAlgorithm(network, debug = false)
-            val bestArrival = algorithm.route(originIndices, destinationIndices, mid)
+            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter)
 
             if (bestArrival <= arrivalTime) {
                 // This departure works, try a later one
@@ -231,6 +241,27 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         return paretoJourneys
     }
 
+    private fun buildRouteFilter(
+        allowedRouteIds: Set<Int>?,
+        allowedRouteNames: Set<String>?,
+        blockedRouteIds: Set<Int>,
+        blockedRouteNames: Set<String>
+    ): io.raptor.core.RouteFilter? {
+        if (allowedRouteIds == null &&
+            allowedRouteNames == null &&
+            blockedRouteIds.isEmpty() &&
+            blockedRouteNames.isEmpty()
+        ) {
+            return null
+        }
+        return io.raptor.core.RouteFilter(
+            allowedRouteIds = allowedRouteIds,
+            allowedRouteNames = allowedRouteNames,
+            blockedRouteIds = blockedRouteIds,
+            blockedRouteNames = blockedRouteNames
+        )
+    }
+
     /**
      * Searches for stops by their name in the current period.
      */
@@ -246,7 +277,11 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         originName: String,
         destinationName: String,
         departureTime: Int,
-        showIntermediateStops: Boolean = false
+        showIntermediateStops: Boolean = false,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet()
     ) {
         val originStops = searchStopsByName(originName)
         val destinationStops = searchStopsByName(destinationName)
@@ -262,7 +297,15 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
             val originIds = originStops.map { it.id }
             val destinationIds = destinationStops.map { it.id }
 
-            val paretoJourneys = getOptimizedPaths(originIds, destinationIds, departureTime)
+            val paretoJourneys = getOptimizedPaths(
+                originStopIds = originIds,
+                destinationStopIds = destinationIds,
+                departureTime = departureTime,
+                allowedRouteIds = allowedRouteIds,
+                allowedRouteNames = allowedRouteNames,
+                blockedRouteIds = blockedRouteIds,
+                blockedRouteNames = blockedRouteNames
+            )
 
             if (paretoJourneys.isEmpty()) {
                 println("\nNo route found at ${formatTime(departureTime)}.")

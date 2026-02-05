@@ -6,7 +6,12 @@ import io.raptor.model.Trip
 class RaptorAlgorithm(private val network: Network, private val debug: Boolean = false) {
     private var lastState: RaptorState? = null
 
-    fun route(originIndices: List<Int>, destinationIndices: List<Int>, departureTime: Int): Int {
+    fun route(
+        originIndices: List<Int>,
+        destinationIndices: List<Int>,
+        departureTime: Int,
+        routeFilter: RouteFilter? = null
+    ): Int {
         val state = RaptorState(network, maxRounds = 5)
         lastState = state
 
@@ -35,7 +40,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             state.copyArrivalTimesToNextRound(k)
 
             // Phase 1: Explore Routes
-            exploreRoutes(state, k, destinationIndices, bestArrivalAtDestination)
+            exploreRoutes(state, k, destinationIndices, bestArrivalAtDestination, routeFilter)
 
             // Phase 2: Explore Transfers
             exploreTransfers(state, k)
@@ -66,12 +71,19 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         return finalBest
     }
 
-    private fun exploreRoutes(state: RaptorState, round: Int, destinationIndices: List<Int>, bestArrivalAtDestination: Int) {
+    private fun exploreRoutes(
+        state: RaptorState,
+        round: Int,
+        destinationIndices: List<Int>,
+        bestArrivalAtDestination: Int,
+        routeFilter: RouteFilter?
+    ) {
         var currentBestAtDestination = bestArrivalAtDestination
         val markedFromPrevious = state.getMarkedInPreviousRound()
         val routesToExplore = network.getRoutesServingStops(markedFromPrevious)
 
         for (route in routesToExplore) {
+            if (routeFilter != null && !routeFilter.allows(route)) continue
             if (debug && route.name == "D") {
                 println("  Exploring Line D (id: ${route.id}, stops: ${route.stopIds.size})")
             }
