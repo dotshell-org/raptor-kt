@@ -10,17 +10,21 @@ class Network(
     // Total number of stops in the network
     val stopCount: Int = stops.size
 
-    // Quick access to a stop's index if needed
-    private val stopIndexMap = stops.associateBy { it.id }
+    // Quick access: stopId -> index in stops list (O(1) lookup)
+    private val stopIdToIndex: HashMap<Int, Int> = HashMap<Int, Int>(stops.size * 2).also { map ->
+        for (i in stops.indices) {
+            map[stops[i].id] = i
+        }
+    }
     private val routesById = routes.groupBy { it.id }
-    
+    private val routeByIdDirect: Map<Int, Route> = routes.associateBy { it.id }
+
     // Index stops by name for implicit transfers
     val stopsByName: Map<String, List<Int>> = stops.indices.groupBy { stops[it].name }
 
-    fun getStopIndex(id: Int): Int {
-        val stop = stopIndexMap[id]
-        return if (stop != null) stops.indexOf(stop) else -1
-    }
+    fun getStopIndex(id: Int): Int = stopIdToIndex[id] ?: -1
+
+    fun getRouteById(routeId: Int): Route? = routeByIdDirect[routeId]
 
     /**
      * Identifies all routes that serve any of the given stops.

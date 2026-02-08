@@ -145,3 +145,13 @@ tasks.register<JavaExec>("runRouteFilterDemo") {
     mainClass.set("io.raptor.RouteFilterDemo")
     dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
 }
+
+tasks.register<JavaExec>("runBenchmark") {
+    group = "verification"
+    description = "Runs the RAPTOR performance benchmark."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.Benchmark")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}

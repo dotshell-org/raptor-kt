@@ -123,16 +123,16 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         var lastBestArrival = Int.MAX_VALUE
 
         for (k in 1..maxRounds) {
+            // Use bestArrival array directly to find the best destination (avoids reconstructing journeys)
             val bestDestIndex = destinationIndices.minByOrNull { idx ->
-                val journey = algorithm.getJourney(idx, k)
-                journey?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
+                algorithm.getArrivalTime(idx, k)
             }
 
             if (bestDestIndex != null) {
-                val journey = algorithm.getJourney(bestDestIndex, k)
-                if (!journey.isNullOrEmpty()) {
-                    val arrivalTime = journey.last().arrivalTime
-                    if (arrivalTime < lastBestArrival) {
+                val arrivalTime = algorithm.getArrivalTime(bestDestIndex, k)
+                if (arrivalTime < lastBestArrival) {
+                    val journey = algorithm.getJourney(bestDestIndex, k)
+                    if (!journey.isNullOrEmpty()) {
                         paretoJourneys.add(journey)
                         lastBestArrival = arrivalTime
                     }
@@ -222,15 +222,14 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         for (k in 1..maxRounds) {
             val bestDestIndex = destinationIndices.minByOrNull { idx ->
-                val journey = algorithm.getJourney(idx, k)
-                journey?.lastOrNull()?.arrivalTime ?: Int.MAX_VALUE
+                algorithm.getArrivalTime(idx, k)
             }
 
             if (bestDestIndex != null) {
-                val journey = algorithm.getJourney(bestDestIndex, k)
-                if (!journey.isNullOrEmpty()) {
-                    val arrivalTime = journey.last().arrivalTime
-                    if (arrivalTime <= maxArrivalTime && arrivalTime < lastBestArrival) {
+                val arrivalTime = algorithm.getArrivalTime(bestDestIndex, k)
+                if (arrivalTime <= maxArrivalTime && arrivalTime < lastBestArrival) {
+                    val journey = algorithm.getJourney(bestDestIndex, k)
+                    if (!journey.isNullOrEmpty()) {
                         paretoJourneys.add(journey)
                         lastBestArrival = arrivalTime
                     }
