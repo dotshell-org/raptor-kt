@@ -27,7 +27,7 @@ data class Route(
     val id: Int,
     val name: String,
     val stopIds: IntArray, // Ordered list of stop IDs for this route
-    val trips: List<Trip>  // List of scheduled trips for this route
+    val trips: Array<Trip> // Scheduled trips for this route, sorted by departure time
 )
 
 /**
@@ -36,15 +36,4 @@ data class Route(
 data class Trip(
     val id: Int,
     val stopTimes: IntArray // Arrival times at each stop (seconds since midnight)
-) {
-    /**
-     * Checks if this trip is "earlier" than another trip.
-     * In the context of RAPTOR, this usually means it departs earlier from a common reference point.
-     * Here we just compare the first stop's time for simplicity, but in `exploreRoutes` 
-     * it's used to compare trips already found.
-     */
-    fun isEarlierThan(other: Trip): Boolean {
-        if (this.stopTimes.isEmpty() || other.stopTimes.isEmpty()) return false
-        return this.stopTimes[0] < other.stopTimes[0]
-    }
-}
+)

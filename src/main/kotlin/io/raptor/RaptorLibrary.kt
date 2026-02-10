@@ -123,19 +123,19 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         var lastBestArrival = Int.MAX_VALUE
 
         for (k in 1..maxRounds) {
-            // Use bestArrival array directly to find the best destination (avoids reconstructing journeys)
-            val bestDestIndex = destinationIndices.minByOrNull { idx ->
-                algorithm.getArrivalTime(idx, k)
+            // Find best destination with manual loop (avoids iterator + lambda allocation)
+            var bestDestIndex = -1
+            var bestTime = Int.MAX_VALUE
+            for (idx in destinationIndices) {
+                val t = algorithm.getArrivalTime(idx, k)
+                if (t < bestTime) { bestTime = t; bestDestIndex = idx }
             }
 
-            if (bestDestIndex != null) {
-                val arrivalTime = algorithm.getArrivalTime(bestDestIndex, k)
-                if (arrivalTime < lastBestArrival) {
-                    val journey = algorithm.getJourney(bestDestIndex, k)
-                    if (!journey.isNullOrEmpty()) {
-                        paretoJourneys.add(journey)
-                        lastBestArrival = arrivalTime
-                    }
+            if (bestDestIndex != -1 && bestTime < lastBestArrival) {
+                val journey = algorithm.getJourney(bestDestIndex, k)
+                if (!journey.isNullOrEmpty()) {
+                    paretoJourneys.add(journey)
+                    lastBestArrival = bestTime
                 }
             }
         }
@@ -182,10 +182,10 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         var high = arrivalTime
         var bestJourneys: List<List<JourneyLeg>> = emptyList()
         var bestDepartureTime = -1
+        val algorithm = RaptorAlgorithm(network, debug = false)
 
         while (low <= high) {
             val mid = (low + high) / 2
-            val algorithm = RaptorAlgorithm(network, debug = false)
             val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter)
 
             if (bestArrival <= arrivalTime) {
@@ -221,18 +221,18 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         var lastBestArrival = Int.MAX_VALUE
 
         for (k in 1..maxRounds) {
-            val bestDestIndex = destinationIndices.minByOrNull { idx ->
-                algorithm.getArrivalTime(idx, k)
+            var bestDestIndex = -1
+            var bestTime = Int.MAX_VALUE
+            for (idx in destinationIndices) {
+                val t = algorithm.getArrivalTime(idx, k)
+                if (t < bestTime) { bestTime = t; bestDestIndex = idx }
             }
 
-            if (bestDestIndex != null) {
-                val arrivalTime = algorithm.getArrivalTime(bestDestIndex, k)
-                if (arrivalTime <= maxArrivalTime && arrivalTime < lastBestArrival) {
-                    val journey = algorithm.getJourney(bestDestIndex, k)
-                    if (!journey.isNullOrEmpty()) {
-                        paretoJourneys.add(journey)
-                        lastBestArrival = arrivalTime
-                    }
+            if (bestDestIndex != -1 && bestTime <= maxArrivalTime && bestTime < lastBestArrival) {
+                val journey = algorithm.getJourney(bestDestIndex, k)
+                if (!journey.isNullOrEmpty()) {
+                    paretoJourneys.add(journey)
+                    lastBestArrival = bestTime
                 }
             }
         }

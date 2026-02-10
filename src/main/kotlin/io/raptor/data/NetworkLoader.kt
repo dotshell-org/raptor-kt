@@ -44,7 +44,7 @@ object NetworkLoader {
             val tripCount = reader.readUInt32()
             val stopIds = IntArray(stopCount) { reader.readUInt32() }
 
-            val trips = List(tripCount) {
+            val trips = Array(tripCount) {
                 val tripId = reader.readUInt32()
                 val arrivalTimes = IntArray(stopCount)
                 var currentTime = 0
@@ -55,8 +55,8 @@ object NetworkLoader {
                 }
                 Trip(tripId, arrivalTimes)
             }
-            val sortedTrips = trips.sortedBy { it.stopTimes[0] }
-            Route(routeId, name, stopIds, sortedTrips)
+            trips.sortBy { it.stopTimes[0] }
+            Route(routeId, name, stopIds, trips)
         }
     }
 }
