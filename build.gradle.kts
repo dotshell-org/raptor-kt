@@ -78,7 +78,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "eu.dotshell"
             artifactId = "raptor-kt"
-            version = "1.2.0"
+            version = "1.3.0"
 
             afterEvaluate {
                 from(components["release"])
