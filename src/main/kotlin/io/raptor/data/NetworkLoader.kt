@@ -55,7 +55,8 @@ object NetworkLoader {
                 }
                 Trip(tripId, arrivalTimes)
             }
-            Route(routeId, name, stopIds, trips)
+            val sortedTrips = trips.sortedBy { it.stopTimes[0] }
+            Route(routeId, name, stopIds, sortedTrips)
         }
     }
 }

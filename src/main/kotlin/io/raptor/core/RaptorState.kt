@@ -14,12 +14,14 @@ data class JourneyLeg(
     val direction: String? = null
 )
 
-data class Tuple5<out A, out B, out C, out D, out E>(
-    val first: A,
-    val second: B,
-    val third: C,
-    val fourth: D,
-    val fifth: E
+class ParentInfo(
+    val parentStopIndex: Int,
+    val parentRound: Int,
+    val routeId: Int,              // -1 for transfers
+    val departureTime: Int,
+    val tripIndex: Int,            // index into route.trips, -1 for transfers
+    val boardingStopInRoute: Int,  // position in route.stopIds, -1 for transfers
+    val alightingStopInRoute: Int  // position in route.stopIds, -1 for transfers
 )
 
 /**
@@ -32,17 +34,24 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         IntArray(network.stopCount) { Int.MAX_VALUE }
     }
 
-    // Parent tracking: [round][stopIndex] -> (parentStopIndex, parentRound, routeId or null if transfer, departureTime, tripId)
-    val parent: Array<Array<Tuple5<Int, Int, Int?, Int, Int>?>> = Array(maxRounds + 1) {
+    // Parent tracking: [round][stopIndex] -> ParentInfo
+    val parent: Array<Array<ParentInfo?>> = Array(maxRounds + 1) {
         Array(network.stopCount) { null }
     }
 
-    // A boolean array to track which stops were improved in the current round
+    // Boolean arrays for O(1) mark checks
     private val markedStops = BooleanArray(network.stopCount)
     private val markedStopsPrevious = BooleanArray(network.stopCount)
 
+    // Incremental tracking of marked stop indices (avoids scanning full array)
+    private var markedList = ArrayList<Int>(256)
+    private var markedListPrevious = ArrayList<Int>(256)
+
     fun markStop(stopIndex: Int) {
-        markedStops[stopIndex] = true
+        if (!markedStops[stopIndex]) {
+            markedStops[stopIndex] = true
+            markedList.add(stopIndex)
+        }
     }
 
     fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
@@ -50,15 +59,17 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun clearMarks() {
         System.arraycopy(markedStops, 0, markedStopsPrevious, 0, markedStops.size)
         markedStops.fill(false)
+
+        // Swap lists
+        val temp = markedListPrevious
+        markedListPrevious = markedList
+        markedList = temp
+        markedList.clear()
     }
 
-    fun getMarkedIndices(): List<Int> {
-        return markedStops.indices.filter { markedStops[it] }
-    }
+    fun getMarkedIndices(): List<Int> = ArrayList(markedList)
 
-    fun getMarkedInPreviousRound(): List<Int> {
-        return markedStopsPrevious.indices.filter { markedStopsPrevious[it] }
-    }
+    fun getMarkedInPreviousRound(): List<Int> = markedListPrevious
 
     /**
      * Propagates best arrival times from round k-1 to round k.
@@ -101,10 +112,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
 
         // Reconstruct backwards from destination
         while (currentRound > 0 && currentStop >= 0) {
-            val parentInfo = parent[currentRound][currentStop] ?: // No more parents, we reached the origin
-            break
-
-            val (parentStop, parentRound, routeId, departureTime, tripId) = parentInfo
+            val info = parent[currentRound][currentStop] ?: break
 
             val intermediateStopIndices = mutableListOf<Int>()
             val intermediateArrivalTimes = mutableListOf<Int>()
@@ -112,39 +120,33 @@ class RaptorState(val network: Network, val maxRounds: Int) {
             var routeName: String? = null
             var direction: String? = null
 
-            if (routeId != null && tripId != -1) {
-                val routes = network.getRoutesServingStops(listOf(parentStop)).filter { it.id == routeId }
-                
-                for (route in routes) {
-                    val trip = route.trips.find { it.id == tripId }
-                    if (trip != null) {
-                        val startIndex = route.stopIds.indexOfFirst { network.getStopIndex(it) == parentStop }
-                        val endIndex = route.stopIds.indexOfFirst { network.getStopIndex(it) == currentStop }
-                        
-                        if (startIndex != -1 && endIndex != -1 && startIndex < endIndex) {
-                            routeName = route.name
-                            val lastStopId = route.stopIds.last()
-                            val lastStopIndex = network.getStopIndex(lastStopId)
-                            if (lastStopIndex != -1) {
-                                direction = network.stops[lastStopIndex].name
-                            }
-                            for (i in startIndex + 1 until endIndex) {
-                                val stopId = route.stopIds[i]
-                                val stopIndex = network.getStopIndex(stopId)
-                                intermediateStopIndices.add(stopIndex)
-                                intermediateArrivalTimes.add(trip.stopTimes[i])
-                            }
-                            break // Found the correct variant
-                        }
+            if (info.routeId != -1) {
+                val route = network.getRouteById(info.routeId)
+                if (route != null) {
+                    routeName = route.name
+                    val trip = route.trips[info.tripIndex]
+
+                    // Direction: last stop of the route
+                    val lastStopId = route.stopIds.last()
+                    val lastStopIndex = network.getStopIndex(lastStopId)
+                    if (lastStopIndex != -1) {
+                        direction = network.stops[lastStopIndex].name
+                    }
+
+                    // Intermediate stops between boarding and alighting
+                    for (i in info.boardingStopInRoute + 1 until info.alightingStopInRoute) {
+                        val stopId = route.stopIds[i]
+                        intermediateStopIndices.add(network.getStopIndex(stopId))
+                        intermediateArrivalTimes.add(trip.stopTimes[i])
                     }
                 }
             }
 
             legs.add(
                 JourneyLeg(
-                    fromStopIndex = parentStop,
+                    fromStopIndex = info.parentStopIndex,
                     toStopIndex = currentStop,
-                    departureTime = departureTime,
+                    departureTime = info.departureTime,
                     arrivalTime = bestArrival[currentRound][currentStop],
                     routeName = routeName,
                     isTransfer = routeName == null,
@@ -155,8 +157,8 @@ class RaptorState(val network: Network, val maxRounds: Int) {
             )
 
             // Move to the parent stop and round
-            currentStop = parentStop
-            currentRound = parentRound
+            currentStop = info.parentStopIndex
+            currentRound = info.parentRound
         }
 
         return legs.reversed()

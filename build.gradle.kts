@@ -78,7 +78,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "eu.dotshell"
             artifactId = "raptor-kt"
-            version = "1.1.0"
+            version = "1.2.0"
 
             afterEvaluate {
                 from(components["release"])
@@ -143,5 +143,15 @@ tasks.register<JavaExec>("runRouteFilterDemo") {
     val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
     classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
     mainClass.set("io.raptor.RouteFilterDemo")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}
+
+tasks.register<JavaExec>("runBenchmark") {
+    group = "verification"
+    description = "Runs the RAPTOR performance benchmark."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.Benchmark")
     dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
 }
