@@ -80,6 +80,17 @@ class Network(
     // Index stops by name for implicit transfers
     val stopsByName: Map<String, List<Int>> = stops.indices.groupBy { stops[it].name }
 
+    // Pre-computed implicit transfer data: implicitTransferData[stopIndex] = IntArray of other stop indices with same name
+    val implicitTransferData: Array<IntArray> = Array(stops.size) { si ->
+        val sameNameStops = stopsByName[stops[si].name] ?: emptyList()
+        val filtered = IntArray(sameNameStops.size - 1)
+        var count = 0
+        for (idx in sameNameStops) {
+            if (idx != si) filtered[count++] = idx
+        }
+        if (count == filtered.size) filtered else filtered.copyOf(count)
+    }
+
     fun getStopIndex(id: Int): Int = stopIdToIndex[id] ?: -1
 
     /**
