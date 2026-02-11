@@ -26,14 +26,9 @@ data class Transfer(
 data class Route(
     val id: Int,
     val name: String,
-    val stopIds: IntArray, // Ordered list of stop IDs for this route
-    val trips: Array<Trip> // Scheduled trips for this route, sorted by departure time
-)
-
-/**
- * Represents a specific trip with its associated stop times.
- */
-data class Trip(
-    val id: Int,
-    val stopTimes: IntArray // Arrival times at each stop (seconds since midnight)
+    val stopIds: IntArray,         // Ordered list of stop IDs for this route
+    val tripCount: Int,            // Number of trips
+    val stopCountInRoute: Int,     // Number of stops in this route
+    val flatStopTimes: IntArray,   // Row-major: [trip0_stop0, trip0_stop1, ..., trip1_stop0, ...] sorted by first stop time
+    val tripIds: IntArray          // Trip IDs in sorted order (parallel to flatStopTimes rows)
 )

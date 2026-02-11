@@ -18,6 +18,17 @@ class BinaryReader(inputStream: InputStream) {
         if (magic != expected) throw IllegalStateException("Bad format : expected $expected, got $magic")
     }
 
+    /**
+     * Reads 4-byte magic without consuming — returns the magic string and resets position.
+     */
+    fun peekMagic(): String {
+        val pos = buffer.position()
+        val bytes = ByteArray(4)
+        buffer.get(bytes)
+        buffer.position(pos)
+        return String(bytes)
+    }
+
     fun readUInt16(): Int = buffer.short.toInt() and 0xFFFF
     fun readUInt32(): Int = buffer.int
     fun readInt32(): Int = buffer.int

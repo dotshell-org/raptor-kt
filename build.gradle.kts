@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "eu.dotshell"
-version = "1.3.0"
+version = "1.4.0"
 
 android {
     namespace = "eu.dotshell.raptor"
@@ -78,7 +78,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "eu.dotshell"
             artifactId = "raptor-kt"
-            version = "1.3.0"
+            version = "1.4.0"
 
             afterEvaluate {
                 from(components["release"])
@@ -146,6 +146,16 @@ tasks.register<JavaExec>("runRouteFilterDemo") {
     dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
 }
 
+tasks.register<JavaExec>("runMetroDiagnostic") {
+    group = "verification"
+    description = "Diagnoses metro connectivity issues."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.MetroDiagnostic")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}
+
 tasks.register<JavaExec>("runBenchmark") {
     group = "verification"
     description = "Runs the RAPTOR performance benchmark."
@@ -154,4 +164,15 @@ tasks.register<JavaExec>("runBenchmark") {
     classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
     mainClass.set("io.raptor.Benchmark")
     dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}
+
+tasks.register<JavaExec>("runBenchmarkParis") {
+    group = "verification"
+    description = "Runs the RAPTOR performance benchmark on Paris (IDFM) data."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.BenchmarkParis")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+    jvmArgs = listOf("-Xmx512m")
 }

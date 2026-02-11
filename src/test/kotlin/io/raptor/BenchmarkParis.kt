@@ -3,18 +3,16 @@ package io.raptor
 import java.io.File
 import java.io.FileInputStream
 
-object Benchmark {
+object BenchmarkParis {
     @JvmStatic
     fun main(args: Array<String>) {
-        val baseDir = args.getOrNull(0) ?: "raptor_data"
+        val baseDir = args.getOrNull(0) ?: "raptor_data_paris"
         val dir = File(baseDir)
         if (!dir.exists() || !dir.isDirectory) {
-            println("[Benchmark] Directory not found: $baseDir")
-            println("[Benchmark] Usage: pass the path to your raptor_data directory as first argument")
+            println("[Benchmark Paris] Directory not found: $baseDir")
             return
         }
 
-        // Look for stops.bin / routes.bin, or auto-detect stops_*.bin / routes_*.bin
         var stopsFile = File(dir, "stops.bin")
         var routesFile = File(dir, "routes.bin")
         if (!stopsFile.exists() || !routesFile.exists()) {
@@ -22,11 +20,11 @@ object Benchmark {
             routesFile = dir.listFiles()?.firstOrNull { it.name.startsWith("routes") && it.name.endsWith(".bin") } ?: routesFile
         }
         if (!stopsFile.exists() || !routesFile.exists()) {
-            println("[Benchmark] No stops/routes .bin files found in: $baseDir")
+            println("[Benchmark Paris] No stops/routes .bin files found in: $baseDir")
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark ===")
+        println("=== RAPTOR-KT Performance Benchmark — Paris (IDFM) ===")
         println("Data: $baseDir")
         println()
 
@@ -45,7 +43,6 @@ object Benchmark {
         val network = io.raptor.model.Network(stops, routes)
         val networkMs = (System.nanoTime() - networkStart) / 1_000_000.0
 
-        // Build RaptorLibrary using the single-period constructor
         val raptor = RaptorLibrary(
             stopsInputStream = FileInputStream(stopsFile),
             routesInputStream = FileInputStream(routesFile)
@@ -62,17 +59,18 @@ object Benchmark {
         println("Memory delta: %.2f MB".format((memAfter - memBefore) / (1024.0 * 1024.0)))
         println()
 
-        // Define test queries
+        // Paris-specific test queries (stop names must match IDFM GTFS exactly)
         val queries = listOf(
-            "Perrache" to "Vaulx-en-Velin La Soie",
-            "Bellecour" to "Part-Dieu",
-            "Gare de Vaise" to "Oullins Centre",
-            "Perrache" to "Cuire",
-            "Laurent Bonnevay" to "Gorge de Loup",  // peripherie-peripherie
-            "Part-Dieu" to "Bellecour", // large origin stop set (many stops match)
+            "Gare de Lyon" to "Gare du Nord",
+            "Gare Saint-Lazare" to "Montparnasse Bienvenue", // metro 13
+            "Charles de Gaulle - Etoile" to "Nation",        // metro 1 end-to-end
+            "Republique" to "Bastille",                      // short metro trip
+            "Gare du Nord" to "Gare Montparnasse",           // cross-city
+            "Bastille" to "Gare Saint-Lazare",               // multi-transfer
+            "Glacière" to "Bonne Nouvelle"
         )
 
-        // Resolve stop IDs once
+        // Resolve stop IDs
         val resolvedQueries = queries.mapNotNull { (origin, dest) ->
             val originIds = raptor.searchStopsByName(origin).map { it.id }
             val destIds = raptor.searchStopsByName(dest).map { it.id }
@@ -80,27 +78,37 @@ object Benchmark {
                 println("SKIP: $origin -> $dest (stops not found)")
                 null
             } else {
+                println("OK: $origin (${originIds.size} stops) -> $dest (${destIds.size} stops)")
                 Triple(origin to dest, originIds, destIds)
             }
         }
 
         if (resolvedQueries.isEmpty()) {
-            println("No valid queries found. Check your stop names against the loaded data.")
+            println("No valid queries found. Listing some stop names for reference:")
+            val sampleNames = network.stops.asSequence()
+                .map { it.name }
+                .distinct()
+                .sorted()
+                .take(50)
+                .toList()
+            println(sampleNames.joinToString("\n") { "  $it" })
             return
         }
 
+        println()
+
         // Warm up JVM
         println("Warming up JVM...")
-        repeat(5) {
+        repeat(3) {
             for ((_, originIds, destIds) in resolvedQueries) {
-                raptor.getOptimizedPaths(originIds, destIds, 8 * 3600)
+                raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
             }
         }
 
         // Benchmark forward routing
-        val iterations = 100
+        val iterations = 50
         println()
-        println("--- Forward Routing (getOptimizedPaths) ---")
+        println("--- Forward Routing (getOptimizedPaths, dep 08:00) ---")
         println("($iterations iterations per query)")
         println()
 
@@ -110,20 +118,20 @@ object Benchmark {
             val startNano = System.nanoTime()
             var lastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
             repeat(iterations) {
-                lastResult = raptor.getOptimizedPaths(originIds, destIds, 8 * 3600)
+                lastResult = raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
             }
             val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
             val hash = journeyHash(lastResult)
             forwardHashes.add(hash)
-            println("%-50s  %.2f ms avg  (%.0f ms total)  hash=%s".format(
-                "$origin -> $dest", elapsedMs / iterations, elapsedMs, hash
+            println("%-55s  %.2f ms avg  (%.0f ms total)  journeys=%d  hash=%s".format(
+                "$origin -> $dest", elapsedMs / iterations, elapsedMs, lastResult.size, hash
             ))
         }
 
         // Benchmark arrive-by routing
-        val arriveByIterations = 10
+        val arriveByIterations = 5
         println()
-        println("--- Arrive-By Routing (getOptimizedPathsArriveBy) ---")
+        println("--- Arrive-By Routing (getOptimizedPathsArriveBy, arr 09:00) ---")
         println("($arriveByIterations iterations per query)")
         println()
 
@@ -138,8 +146,8 @@ object Benchmark {
             val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
             val hash = journeyHash(lastResult)
             arriveByHashes.add(hash)
-            println("%-50s  %.2f ms avg  (%.0f ms total)  hash=%s".format(
-                "$origin -> $dest (arrive-by)", elapsedMs / arriveByIterations, elapsedMs, hash
+            println("%-55s  %.2f ms avg  (%.0f ms total)  journeys=%d  hash=%s".format(
+                "$origin -> $dest (arrive-by)", elapsedMs / arriveByIterations, elapsedMs, lastResult.size, hash
             ))
         }
 
@@ -149,32 +157,32 @@ object Benchmark {
         println("Forward:   ${forwardHashes.joinToString(" ")}")
         println("Arrive-by: ${arriveByHashes.joinToString(" ")}")
 
-        // Quick correctness check: display one journey
+        // Display one journey for correctness check
         println()
         println("--- Correctness Check ---")
-        val (names, originIds, destIds) = resolvedQueries.first()
-        val journeys = raptor.getOptimizedPaths(originIds, destIds, 8 * 3600)
-        println("${names.first} -> ${names.second}: ${journeys.size} Pareto-optimal journey(s)")
-        for ((idx, journey) in journeys.withIndex()) {
-            val dep = journey.first().departureTime
-            val arr = journey.last().arrivalTime
-            val legs = journey.size
-            val transitLegs = journey.count { !it.isTransfer }
-            println("  Option ${idx + 1}: dep=${formatTime(dep)} arr=${formatTime(arr)} legs=$legs transit=$transitLegs")
-            for (leg in journey) {
-                if (leg.isTransfer) {
-                    println("    Transfer: stop${leg.fromStopIndex} -> stop${leg.toStopIndex} (${(leg.arrivalTime - leg.departureTime)}s)")
-                } else {
-                    println("    ${leg.routeName}: stop${leg.fromStopIndex} -> stop${leg.toStopIndex} dep=${formatTime(leg.departureTime)} arr=${formatTime(leg.arrivalTime)}")
+        for ((names, originIds, destIds) in resolvedQueries) {
+            val (origin, dest) = names
+            val journeys = raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
+            println("$origin -> $dest: ${journeys.size} Pareto-optimal journey(s)")
+            for ((idx, journey) in journeys.withIndex()) {
+                val dep = journey.first().departureTime
+                val arr = journey.last().arrivalTime
+                val transitLegs = journey.count { !it.isTransfer }
+                println("  Option ${idx + 1}: dep=${formatTime(dep)} arr=${formatTime(arr)} transfers=${transitLegs - 1}")
+                for (leg in journey) {
+                    val fromName = network.stops.getOrNull(leg.fromStopIndex)?.name ?: "stop${leg.fromStopIndex}"
+                    val toName = network.stops.getOrNull(leg.toStopIndex)?.name ?: "stop${leg.toStopIndex}"
+                    if (leg.isTransfer) {
+                        println("    TRANSFER: $fromName -> $toName (${leg.arrivalTime - leg.departureTime}s)")
+                    } else {
+                        println("    ${leg.routeName}: $fromName -> $toName dep=${formatTime(leg.departureTime)} arr=${formatTime(leg.arrivalTime)}")
+                    }
                 }
             }
+            println()
         }
     }
 
-    /**
-     * Compute a deterministic hash of journey results for regression detection.
-     * Any change in routing output will change this hash.
-     */
     private fun journeyHash(journeys: List<List<io.raptor.core.JourneyLeg>>): String {
         var h = 17L
         for (journey in journeys) {
@@ -188,7 +196,6 @@ object Benchmark {
                 h = h * 31 + (leg.routeName?.hashCode()?.toLong() ?: 0L)
             }
         }
-        // Return as compact hex string
         return "%08x".format(h.toInt())
     }
 

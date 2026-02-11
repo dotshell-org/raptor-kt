@@ -161,7 +161,8 @@ class RaptorState(val network: Network, val maxRounds: Int) {
             if (pRouteInternalIdx != -1) {
                 val route = network.routeList[pRouteInternalIdx]
                 routeName = route.name
-                val trip = route.trips[pTripIdx]
+                val flat = route.flatStopTimes
+                val stride = route.stopCountInRoute
 
                 // Direction: last stop of the route
                 val lastStopId = route.stopIds.last()
@@ -171,10 +172,11 @@ class RaptorState(val network: Network, val maxRounds: Int) {
                 }
 
                 // Intermediate stops between boarding and alighting
+                val tripOffset = pTripIdx * stride
                 for (i in pBoardingPos + 1 until pAlightingPos) {
                     val stopId = route.stopIds[i]
                     intermediateStopIndices.add(network.getStopIndex(stopId))
-                    intermediateArrivalTimes.add(trip.stopTimes[i])
+                    intermediateArrivalTimes.add(flat[tripOffset + i])
                 }
             }
 

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileDebugKotlin:*)",
+      "Bash(./gradlew runBenchmark:*)",
+      "Bash(python3 -c:*)",
+      "Bash(python3:*)",
+      "Bash(./gradlew runRouteFilterDemo:*)"
+    ]
+  }
+}
