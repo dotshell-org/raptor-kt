@@ -127,6 +127,11 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 if (currentTripIndex != -1) {
                     val arrivalTime = flat[tripOffset + i]
 
+                    // Overnight wrap protection: if arrival < boarding departure, the trip
+                    // crosses midnight but times were stored mod 86400 — skip this stop
+                    val boardingDep = flat[tripOffset + boardingIndex]
+                    if (arrivalTime < boardingDep) continue
+
                     // Target pruning: can we even improve the best arrival at destination?
                     if (arrivalTime < state.bestArrival[round][stopIndex] && arrivalTime < currentBestAtDestination) {
                         if (debug) {
@@ -253,7 +258,8 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         val h = seconds / 3600
         val m = (seconds % 3600) / 60
         val s = seconds % 60
-        return "%02d:%02d:%02d".format(h, m, s)
+        return if (h >= 24) "%02d:%02d:%02d(+1)".format(h - 24, m, s)
+        else "%02d:%02d:%02d".format(h, m, s)
     }
 
     fun getArrivalTime(stopIndex: Int, round: Int): Int {
