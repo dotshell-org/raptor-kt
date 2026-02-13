@@ -32,6 +32,7 @@ data class PeriodData(
  */
 class RaptorLibrary(periodDataList: List<PeriodData>) {
     private val networks: Map<String, Network>
+    private val algorithmCache = mutableMapOf<String, RaptorAlgorithm>()
     private var currentPeriodId: String
 
     init {
@@ -111,7 +112,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
             return emptyList()
         }
 
-        val algorithm = RaptorAlgorithm(network, debug = false)
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime, routeFilter)
 
@@ -182,7 +183,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         var high = arrivalTime
         var bestJourneys: List<List<JourneyLeg>> = emptyList()
         var bestDepartureTime = -1
-        val algorithm = RaptorAlgorithm(network, debug = false)
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
         while (low <= high) {
             val mid = (low + high) / 2

@@ -18,51 +18,60 @@ data class JourneyLeg(
  * Tracks the state of a single routing request across rounds.
  */
 class RaptorState(val network: Network, val maxRounds: Int) {
-    // bestArrival[round][stopIndex] stores the earliest arrival time
-    // Int.MAX_VALUE represents infinity (unreachable)
-    val bestArrival: Array<IntArray> = Array(maxRounds + 1) {
-        IntArray(network.stopCount).also { it.fill(Int.MAX_VALUE) }
-    }
+    val stopCount: Int = network.stopCount
 
-    // Parent tracking as struct-of-arrays (avoids per-improvement object allocation)
-    // Sentinel value -1 means "no parent"
-    val parentStopIndex: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentRound: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentRouteIdx: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentDepartureTime: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentTripIndex: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentBoardingPos: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
-    val parentAlightingPos: Array<IntArray> = Array(maxRounds + 1) { IntArray(network.stopCount) { -1 } }
+    // Flat bestArrival: bestArrival[round * stopCount + stopIndex]
+    // Int.MAX_VALUE represents infinity (unreachable)
+    val bestArrival: IntArray = IntArray((maxRounds + 1) * stopCount).also { it.fill(Int.MAX_VALUE) }
+
+    // Parent tracking: flat interleaved IntArray
+    // Layout: parentData[(round * stopCount + stopIndex) * 7 + field]
+    // 7 fields per entry, all in one contiguous array for cache locality
+    val parentData: IntArray = IntArray((maxRounds + 1) * stopCount * PARENT_STRIDE).also { it.fill(-1) }
+
+    companion object {
+        const val P_STOP = 0
+        const val P_ROUND = 1
+        const val P_ROUTE = 2
+        const val P_DEP_TIME = 3
+        const val P_TRIP = 4
+        const val P_BOARD_POS = 5
+        const val P_ALIGHT_POS = 6
+        const val PARENT_STRIDE = 7
+    }
 
     // Boolean arrays for O(1) mark checks
     private val markedStops = BooleanArray(network.stopCount)
     private val markedStopsPrevious = BooleanArray(network.stopCount)
 
-    // Incremental tracking of marked stop indices (avoids scanning full array)
-    private var markedList = ArrayList<Int>(256)
-    private var markedListPrevious = ArrayList<Int>(256)
+    // Incremental tracking of marked stop indices (IntArray-backed, no boxing)
+    private var markedArray = IntArray(256)
+    private var markedSize = 0
+    private var markedArrayPrev = IntArray(256)
+    private var markedSizePrev = 0
+
+    // Track max round used for lazy parent reset
+    private var lastMaxRound = maxRounds // first reset fills everything
 
     fun reset() {
-        for (k in 0..maxRounds) {
-            bestArrival[k].fill(Int.MAX_VALUE)
-            parentStopIndex[k].fill(-1)
-            parentRound[k].fill(-1)
-            parentRouteIdx[k].fill(-1)
-            parentDepartureTime[k].fill(-1)
-            parentTripIndex[k].fill(-1)
-            parentBoardingPos[k].fill(-1)
-            parentAlightingPos[k].fill(-1)
-        }
+        bestArrival.fill(Int.MAX_VALUE)
+        // Only reset parent data for rounds actually used in previous query
+        val parentResetEnd = (lastMaxRound + 1) * stopCount * PARENT_STRIDE
+        java.util.Arrays.fill(parentData, 0, parentResetEnd, -1)
+        lastMaxRound = 0
         markedStops.fill(false)
         markedStopsPrevious.fill(false)
-        markedList.clear()
-        markedListPrevious.clear()
+        markedSize = 0
+        markedSizePrev = 0
     }
 
     fun markStop(stopIndex: Int) {
         if (!markedStops[stopIndex]) {
             markedStops[stopIndex] = true
-            markedList.add(stopIndex)
+            if (markedSize == markedArray.size) {
+                markedArray = markedArray.copyOf(markedArray.size * 2)
+            }
+            markedArray[markedSize++] = stopIndex
         }
     }
 
@@ -72,31 +81,32 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         System.arraycopy(markedStops, 0, markedStopsPrevious, 0, markedStops.size)
         markedStops.fill(false)
 
-        // Swap lists
-        val temp = markedListPrevious
-        markedListPrevious = markedList
-        markedList = temp
-        markedList.clear()
+        // Swap arrays
+        val tmpArr = markedArrayPrev; markedArrayPrev = markedArray; markedArray = tmpArr
+        markedSizePrev = markedSize
+        markedSize = 0
     }
 
-    fun getMarkedCount(): Int = markedList.size
-    fun getMarkedAt(i: Int): Int = markedList[i]
+    fun getMarkedCount(): Int = markedSize
+    fun getMarkedAt(i: Int): Int = markedArray[i]
 
-    fun getMarkedInPreviousRound(): List<Int> = markedListPrevious
+    fun getMarkedPrevArray(): IntArray = markedArrayPrev
+    fun getMarkedPrevSize(): Int = markedSizePrev
 
     /**
      * Propagates best arrival times from round k-1 to round k.
      */
     fun copyArrivalTimesToNextRound(round: Int) {
         if (round !in 1..maxRounds) return
-        System.arraycopy(bestArrival[round - 1], 0, bestArrival[round], 0, network.stopCount)
+        System.arraycopy(bestArrival, (round - 1) * stopCount, bestArrival, round * stopCount, stopCount)
     }
 
     fun getBestArrival(stopIndex: Int): Int {
         var minArrival = Int.MAX_VALUE
         for (k in 0..maxRounds) {
-            if (bestArrival[k][stopIndex] < minArrival) {
-                minArrival = bestArrival[k][stopIndex]
+            val v = bestArrival[k * stopCount + stopIndex]
+            if (v < minArrival) {
+                minArrival = v
             }
         }
         return minArrival
@@ -106,8 +116,9 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         var minArrival = Int.MAX_VALUE
         var bestRound = -1
         for (k in 0..maxRounds) {
-            if (bestArrival[k][stopIndex] < minArrival) {
-                minArrival = bestArrival[k][stopIndex]
+            val v = bestArrival[k * stopCount + stopIndex]
+            if (v < minArrival) {
+                minArrival = v
                 bestRound = k
             }
         }
@@ -115,20 +126,23 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     }
 
     /**
-     * Sets parent info for a stop in a given round (struct-of-arrays write).
+     * Sets parent info for a stop in a given round (interleaved flat array write).
+     * All 7 fields are written to contiguous memory for cache locality.
      */
     fun setParent(
         round: Int, stopIndex: Int,
         pStopIndex: Int, pRound: Int, routeIdx: Int,
         depTime: Int, tripIdx: Int, boardingPos: Int, alightingPos: Int
     ) {
-        parentStopIndex[round][stopIndex] = pStopIndex
-        parentRound[round][stopIndex] = pRound
-        parentRouteIdx[round][stopIndex] = routeIdx
-        parentDepartureTime[round][stopIndex] = depTime
-        parentTripIndex[round][stopIndex] = tripIdx
-        parentBoardingPos[round][stopIndex] = boardingPos
-        parentAlightingPos[round][stopIndex] = alightingPos
+        if (round > lastMaxRound) lastMaxRound = round
+        val base = (round * stopCount + stopIndex) * PARENT_STRIDE
+        parentData[base + P_STOP] = pStopIndex
+        parentData[base + P_ROUND] = pRound
+        parentData[base + P_ROUTE] = routeIdx
+        parentData[base + P_DEP_TIME] = depTime
+        parentData[base + P_TRIP] = tripIdx
+        parentData[base + P_BOARD_POS] = boardingPos
+        parentData[base + P_ALIGHT_POS] = alightingPos
     }
 
     fun reconstructJourney(destinationIndex: Int, round: Int? = null): List<JourneyLeg> {
@@ -136,21 +150,22 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         var currentRound = round ?: getBestRound(destinationIndex)
         var currentStop = destinationIndex
 
-        if (currentRound == -1 || bestArrival[currentRound][destinationIndex] == Int.MAX_VALUE) {
+        if (currentRound == -1 || bestArrival[currentRound * stopCount + destinationIndex] == Int.MAX_VALUE) {
             return emptyList()
         }
 
         // Reconstruct backwards from destination
         while (currentRound > 0 && currentStop >= 0) {
-            val pStop = parentStopIndex[currentRound][currentStop]
+            val base = (currentRound * stopCount + currentStop) * PARENT_STRIDE
+            val pStop = parentData[base + P_STOP]
             if (pStop == -1) break
 
-            val pRound = parentRound[currentRound][currentStop]
-            val pRouteInternalIdx = parentRouteIdx[currentRound][currentStop]
-            val pDepTime = parentDepartureTime[currentRound][currentStop]
-            val pTripIdx = parentTripIndex[currentRound][currentStop]
-            val pBoardingPos = parentBoardingPos[currentRound][currentStop]
-            val pAlightingPos = parentAlightingPos[currentRound][currentStop]
+            val pRound = parentData[base + P_ROUND]
+            val pRouteInternalIdx = parentData[base + P_ROUTE]
+            val pDepTime = parentData[base + P_DEP_TIME]
+            val pTripIdx = parentData[base + P_TRIP]
+            val pBoardingPos = parentData[base + P_BOARD_POS]
+            val pAlightingPos = parentData[base + P_ALIGHT_POS]
 
             val intermediateStopIndices = mutableListOf<Int>()
             val intermediateArrivalTimes = mutableListOf<Int>()
@@ -185,7 +200,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
                     fromStopIndex = pStop,
                     toStopIndex = currentStop,
                     departureTime = pDepTime,
-                    arrivalTime = bestArrival[currentRound][currentStop],
+                    arrivalTime = bestArrival[currentRound * stopCount + currentStop],
                     routeName = routeName,
                     isTransfer = routeName == null,
                     intermediateStopIndices = intermediateStopIndices,

@@ -98,9 +98,10 @@ class Network(
      * Uses a reusable BooleanArray for deduplication (no HashSet allocation).
      * Returns count of results written to resultBuffer.
      */
-    fun collectRouteIndices(stopIndices: List<Int>, seenBuffer: BooleanArray, resultBuffer: IntArray): Int {
+    fun collectRouteIndices(stopIndices: IntArray, stopCount: Int, seenBuffer: BooleanArray, resultBuffer: IntArray): Int {
         var count = 0
-        for (si in stopIndices) {
+        for (idx in 0 until stopCount) {
+            val si = stopIndices[idx]
             val routeIndices = routeIndicesForStop[si]
             for (routeIdx in routeIndices) {
                 if (!seenBuffer[routeIdx]) {
