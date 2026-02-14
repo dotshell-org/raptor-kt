@@ -18,7 +18,7 @@ plugins {
 }
 
 group = "eu.dotshell"
-version = "1.4.0"
+version = "1.5.0"
 
 android {
     namespace = "eu.dotshell.raptor"
@@ -78,7 +78,7 @@ publishing {
         create<MavenPublication>("release") {
             groupId = "eu.dotshell"
             artifactId = "raptor-kt"
-            version = "1.4.0"
+            version = "1.5.0"
 
             afterEvaluate {
                 from(components["release"])
