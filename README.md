@@ -86,7 +86,6 @@ You can also search for routes that arrive before a specific time (useful for "I
 ```kotlin
 // Find the best routes to arrive by 09:00
 val arrivalTime = 9 * 3600 // 09:00:00 in seconds
-
 val journeys = raptor.getOptimizedPathsArriveBy(
     originStopIds = originStops.map { it.id },
     destinationStopIds = destStops.map { it.id },
@@ -130,3 +129,18 @@ raptor.searchAndDisplayRoute(
     allowedRouteNames = setOf("JD2", "JD3", "RX")
 )
 ```
+
+## Performance
+
+Benchmarked on the full TCL Lyon network (14 386 stops, 331 routes, 19 523 trips, ~14 MB). Results after JVM warmup.
+
+| Route | Forward | Arrive-By |
+|:------|--------:|----------:|
+| Perrache → Vaulx-en-Velin La Soie | 0.36 ms | 1.48 ms |
+| Bellecour → Part-Dieu | 0.20 ms | 0.90 ms |
+| Gare de Vaise → Oullins Centre | 0.28 ms | 1.60 ms |
+| Perrache → Cuire | 0.33 ms | 2.34 ms |
+| Laurent Bonnevay → Gorge de Loup | 0.28 ms | 2.10 ms |
+| Part-Dieu → Bellecour | 0.18 ms | 0.97 ms |
+
+100 iterations (forward), 10 iterations (arrive-by).
