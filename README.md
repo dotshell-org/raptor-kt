@@ -147,6 +147,20 @@ Results after JVM warmup.
 
 100 iterations (forward), 10 iterations (arrive-by).
 
+### RTM Marseille — 2 754 stops, 243 routes, 43 590 trips (~10 MB)
+
+| Route | Forward | Arrive-By |
+|:------|--------:|----------:|
+| Vieux-Port → La Rose | 0.13 ms | 0.54 ms |
+| Castellane → Bougainville | 0.18 ms | 0.58 ms |
+| Gare St Charles → Rond-Point du Prado | 0.37 ms | 2.39 ms |
+| La Timone → Joliette | 0.21 ms | 1.03 ms |
+| La Rose → Castellane | 0.11 ms | 0.64 ms |
+| Noailles → Sainte-Marguerite Dromel | 0.03 ms | 0.18 ms |
+| Bougainville → La Fourragère | 0.30 ms | 1.64 ms |
+
+100 iterations (forward), 10 iterations (arrive-by).
+
 ### IDFM Paris — 53 944 stops, 3 744 routes, 377 225 trips (~142 MB)
 
 | Route | Forward | Arrive-By |
