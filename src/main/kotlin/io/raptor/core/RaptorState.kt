@@ -50,7 +50,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     private var markedArrayPrev = IntArray(256)
     private var markedSizePrev = 0
 
-    // Track max round used for lazy parent reset
+    // Track max round used for lazy reset of bestArrival and parentData
     private var lastMaxRound = maxRounds // first reset fills everything
 
     fun reset() {

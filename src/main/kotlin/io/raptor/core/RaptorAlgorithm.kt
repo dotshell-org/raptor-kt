@@ -127,6 +127,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
 
             val flat = route.flatStopTimes
             val stride = route.stopCountInRoute
+            val overnight = route.hasOvernightTrips
             var currentTripIndex = -1
             var tripOffset = 0  // currentTripIndex * stride, cached
             var boardingIndex = -1
@@ -145,10 +146,8 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 if (currentTripIndex != -1) {
                     val arrivalTime = flat[tripOffset + i]
 
-                    // Overnight wrap protection: if arrival < boarding departure, the trip
-                    // crosses midnight but times were stored mod 86400 — skip this stop
-                    val boardingDep = flat[tripOffset + boardingIndex]
-                    if (arrivalTime < boardingDep) continue
+                    // Overnight wrap protection (only for routes with midnight-crossing trips)
+                    if (overnight && arrivalTime < flat[tripOffset + boardingIndex]) continue
 
                     // Target pruning: can we even improve the best arrival at destination?
                     if (arrivalTime < ba[roundOff + stopIndex] && arrivalTime < currentBestAtDestination) {
@@ -208,8 +207,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
 
         while (low <= high) {
             val mid = (low + high) ushr 1
-            val departureFromStop = flatStopTimes[mid * stride + stopIndexInRoute]
-            if (departureFromStop >= arrivalTime) {
+            if (flatStopTimes[mid * stride + stopIndexInRoute] >= arrivalTime) {
                 result = mid
                 high = mid - 1
             } else {

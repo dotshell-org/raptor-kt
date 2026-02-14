@@ -84,7 +84,8 @@ object NetworkLoader {
                 System.arraycopy(flatStopTimes, sortedIndices[i] * stopCount, sortedFlat, i * stopCount, stopCount)
             }
 
-            Route(routeId, name, stopIds, tripCount, stopCount, sortedFlat, sortedTripIds)
+            val overnight = hasOvernight(sortedFlat, tripCount, stopCount)
+            Route(routeId, name, stopIds, tripCount, stopCount, sortedFlat, sortedTripIds, overnight)
         }
     }
 
@@ -141,7 +142,18 @@ object NetworkLoader {
             }
             // No sorting needed — pre-sorted in binary file
 
-            Route(routeId, name, stopIds, tripCount, stopCount, flatStopTimes, tripIds)
+            val overnight = hasOvernight(flatStopTimes, tripCount, stopCount)
+            Route(routeId, name, stopIds, tripCount, stopCount, flatStopTimes, tripIds, overnight)
         }
+    }
+
+    private fun hasOvernight(flat: IntArray, tripCount: Int, stopCount: Int): Boolean {
+        for (t in 0 until tripCount) {
+            val base = t * stopCount
+            for (s in 1 until stopCount) {
+                if (flat[base + s] < flat[base + s - 1]) return true
+            }
+        }
+        return false
     }
 }

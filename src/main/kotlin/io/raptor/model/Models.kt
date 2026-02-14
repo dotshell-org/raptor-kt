@@ -22,13 +22,15 @@ data class Transfer(
 
 /**
  * Represents a transit route (a line with a specific sequence of stops).
+ * Uses @JvmField for hot-path fields to eliminate property accessor overhead.
  */
-data class Route(
-    val id: Int,
-    val name: String,
-    val stopIds: IntArray,         // Ordered list of stop IDs for this route
-    val tripCount: Int,            // Number of trips
-    val stopCountInRoute: Int,     // Number of stops in this route
-    val flatStopTimes: IntArray,   // Row-major: [trip0_stop0, trip0_stop1, ..., trip1_stop0, ...] sorted by first stop time
-    val tripIds: IntArray          // Trip IDs in sorted order (parallel to flatStopTimes rows)
+class Route(
+    @JvmField val id: Int,
+    @JvmField val name: String,
+    @JvmField val stopIds: IntArray,         // Ordered list of stop IDs for this route
+    @JvmField val tripCount: Int,            // Number of trips
+    @JvmField val stopCountInRoute: Int,     // Number of stops in this route
+    @JvmField val flatStopTimes: IntArray,   // Row-major: [trip0_stop0, trip0_stop1, ..., trip1_stop0, ...] sorted by first stop time
+    @JvmField val tripIds: IntArray,         // Trip IDs in sorted order (parallel to flatStopTimes rows)
+    @JvmField val hasOvernightTrips: Boolean // true if any trip has a time decrease (midnight wrap)
 )

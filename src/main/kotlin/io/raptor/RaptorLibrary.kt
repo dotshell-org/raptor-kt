@@ -177,36 +177,33 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val searchWindowSeconds = searchWindowMinutes * 60
         val earliestDeparture = maxOf(0, arrivalTime - searchWindowSeconds)
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
-        
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
+
         // Binary search to find the latest departure that arrives on time
         var low = earliestDeparture
         var high = arrivalTime
-        var bestJourneys: List<List<JourneyLeg>> = emptyList()
-        var bestDepartureTime = -1
-        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
+        var bestMid = -1
+        var lastWasSuccess = false
 
         while (low <= high) {
             val mid = (low + high) / 2
             val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter)
 
             if (bestArrival <= arrivalTime) {
-                // This departure works, try a later one
-                val journeys = extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
-                if (journeys.isNotEmpty()) {
-                    val latestDeparture = journeys.maxOf { it.first().departureTime }
-                    if (latestDeparture > bestDepartureTime) {
-                        bestDepartureTime = latestDeparture
-                        bestJourneys = journeys
-                    }
-                }
-                low = mid + 60 // Move forward by 1 minute
+                bestMid = mid
+                lastWasSuccess = true
+                low = mid + 60
             } else {
-                // Arrives too late, try an earlier departure
+                lastWasSuccess = false
                 high = mid - 60
             }
         }
 
-        return bestJourneys
+        if (bestMid == -1) return emptyList()
+        if (!lastWasSuccess) {
+            algorithm.route(originIndices, destinationIndices, bestMid, routeFilter)
+        }
+        return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
     }
 
     /**
