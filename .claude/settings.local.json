@@ -5,7 +5,9 @@
       "Bash(./gradlew runBenchmark:*)",
       "Bash(python3 -c:*)",
       "Bash(python3:*)",
-      "Bash(./gradlew runRouteFilterDemo:*)"
+      "Bash(./gradlew runRouteFilterDemo:*)",
+      "Bash(./gradlew listStopsRTM:*)",
+      "Bash(./gradlew runBenchmarkRTM:*)"
     ]
   }
 }

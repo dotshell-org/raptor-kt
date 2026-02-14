@@ -176,3 +176,23 @@ tasks.register<JavaExec>("runBenchmarkParis") {
     dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
     jvmArgs = listOf("-Xmx512m")
 }
+
+tasks.register<JavaExec>("runBenchmarkRTM") {
+    group = "verification"
+    description = "Runs the RAPTOR performance benchmark on Marseille (RTM) data."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.BenchmarkRTM")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}
+
+tasks.register<JavaExec>("listStopsRTM") {
+    group = "verification"
+    description = "Lists all distinct stop names from the RTM (Marseille) data."
+    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
+    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
+    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
+    mainClass.set("io.raptor.ListStopsRTM")
+    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
+}
