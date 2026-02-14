@@ -59,9 +59,9 @@ class Network(
     }
 
     // Pre-computed: routeIndicesForStop[stopIndex] = array of internal route indices
+    // Filtered: only includes routes where the stop actually appears in routeStopIndices
     val routeIndicesForStop: Array<IntArray> = Array(stops.size) { si ->
         val routeIds = stops[si].routeIds
-        // Count total indices first (a single routeId may map to multiple internal routes)
         var total = 0
         for (rid in routeIds) {
             total += routeInternalIndices[rid]?.size ?: 0
@@ -70,11 +70,19 @@ class Network(
         var count = 0
         for (rid in routeIds) {
             val arr = routeInternalIndices[rid] ?: continue
-            for (idx in arr) {
-                indices[count++] = idx
+            for (rIdx in arr) {
+                // Only include if stop actually appears in this route direction
+                val rsi = routeStopIndices[rIdx]
+                var found = false
+                for (p in rsi.indices) {
+                    if (rsi[p] == si) { found = true; break }
+                }
+                if (found) {
+                    indices[count++] = rIdx
+                }
             }
         }
-        indices
+        if (count == total) indices else indices.copyOf(count)
     }
 
     // Index stops by name for implicit transfers
@@ -98,9 +106,10 @@ class Network(
      * Uses a reusable BooleanArray for deduplication (no HashSet allocation).
      * Returns count of results written to resultBuffer.
      */
-    fun collectRouteIndices(stopIndices: List<Int>, seenBuffer: BooleanArray, resultBuffer: IntArray): Int {
+    fun collectRouteIndices(stopIndices: IntArray, stopCount: Int, seenBuffer: BooleanArray, resultBuffer: IntArray): Int {
         var count = 0
-        for (si in stopIndices) {
+        for (idx in 0 until stopCount) {
+            val si = stopIndices[idx]
             val routeIndices = routeIndicesForStop[si]
             for (routeIdx in routeIndices) {
                 if (!seenBuffer[routeIdx]) {
