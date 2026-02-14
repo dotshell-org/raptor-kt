@@ -132,7 +132,9 @@ raptor.searchAndDisplayRoute(
 
 ## Performance
 
-Benchmarked on the full TCL Lyon network (14 386 stops, 331 routes, 19 523 trips, ~14 MB). Results after JVM warmup.
+Results after JVM warmup.
+
+### TCL Lyon — 14 386 stops, 331 routes, 19 523 trips (~14 MB)
 
 | Route | Forward | Arrive-By |
 |:------|--------:|----------:|
@@ -144,3 +146,17 @@ Benchmarked on the full TCL Lyon network (14 386 stops, 331 routes, 19 523 trips
 | Part-Dieu → Bellecour | 0.18 ms | 0.97 ms |
 
 100 iterations (forward), 10 iterations (arrive-by).
+
+### IDFM Paris — 53 944 stops, 3 744 routes, 377 225 trips (~142 MB)
+
+| Route | Forward | Arrive-By |
+|:------|--------:|----------:|
+| Gare de Lyon → Gare du Nord | 2.38 ms | 19.89 ms |
+| Gare Saint-Lazare → Montparnasse Bienvenue | 3.01 ms | 20.35 ms |
+| Charles de Gaulle - Étoile → Nation | 1.17 ms | 8.33 ms |
+| République → Bastille | 0.86 ms | 4.22 ms |
+| Gare du Nord → Gare Montparnasse | 6.35 ms | 42.98 ms |
+| Bastille → Gare Saint-Lazare | 2.95 ms | 29.73 ms |
+| Glacière → Bonne Nouvelle | 7.19 ms | 51.55 ms |
+
+50 iterations (forward), 5 iterations (arrive-by).
