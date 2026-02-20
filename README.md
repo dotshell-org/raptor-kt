@@ -132,7 +132,7 @@ raptor.searchAndDisplayRoute(
 
 ## Performance
 
-Results after JVM warmup.
+Results after JVM warmup.( Config : Intel Core i7 11700, 32 Go RAM DDR4 2122 Mhz, Windows 11 )
 
 ### TCL Lyon — 14 386 stops, 331 routes, 19 523 trips (~14 MB)
 
