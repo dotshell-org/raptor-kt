@@ -16,7 +16,7 @@ import java.util.concurrent.TimeUnit
  * RaptorAlgorithm is NOT thread-safe (reuses mutable state), so all benchmarks
  * run single-threaded with Scope.Benchmark.
  */
-@BenchmarkMode(Mode.AverageTime, Mode.SampleTime)
+@BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
 @State(Scope.Benchmark)
 @Fork(3)
