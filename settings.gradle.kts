@@ -35,3 +35,5 @@ plugins {
 }
 
 rootProject.name = "raptor-kt"
+
+include(":benchmark")
