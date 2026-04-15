@@ -97,50 +97,102 @@ object Benchmark {
             }
         }
 
-        // Benchmark forward routing
-        val iterations = 100
+        // Run the full benchmark multiple times and aggregate per-query timings.
+        val benchmarkRuns = 100
+        val forwardIterations = 100
+        val arriveByIterations = 100
+
+        val forwardAvgMsSum = MutableList(resolvedQueries.size) { 0.0 }
+        val forwardTotalMsSum = MutableList(resolvedQueries.size) { 0.0 }
+        val forwardLastHashes = MutableList(resolvedQueries.size) { "" }
+        val forwardHashStable = MutableList(resolvedQueries.size) { true }
+
+        val arriveByAvgMsSum = MutableList(resolvedQueries.size) { 0.0 }
+        val arriveByTotalMsSum = MutableList(resolvedQueries.size) { 0.0 }
+        val arriveByLastHashes = MutableList(resolvedQueries.size) { "" }
+        val arriveByHashStable = MutableList(resolvedQueries.size) { true }
+
+        println()
+        println("Running full benchmark $benchmarkRuns times...")
+
+        repeat(benchmarkRuns) { runIndex ->
+            for ((queryIndex, query) in resolvedQueries.withIndex()) {
+                val (names, originIds, destIds) = query
+                val (_, _) = names
+
+                val forwardStartNano = System.nanoTime()
+                var forwardLastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
+                repeat(forwardIterations) {
+                    forwardLastResult = raptor.getOptimizedPaths(originIds, destIds, 8 * 3600)
+                }
+                val forwardElapsedMs = (System.nanoTime() - forwardStartNano) / 1_000_000.0
+                val forwardHash = journeyHash(forwardLastResult)
+
+                forwardAvgMsSum[queryIndex] += forwardElapsedMs / forwardIterations
+                forwardTotalMsSum[queryIndex] += forwardElapsedMs
+                if (runIndex == 0) {
+                    forwardLastHashes[queryIndex] = forwardHash
+                } else if (forwardHash != forwardLastHashes[queryIndex]) {
+                    forwardHashStable[queryIndex] = false
+                    forwardLastHashes[queryIndex] = forwardHash
+                }
+
+                val arriveByStartNano = System.nanoTime()
+                var arriveByLastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
+                repeat(arriveByIterations) {
+                    arriveByLastResult = raptor.getOptimizedPathsArriveBy(originIds, destIds, 9 * 3600)
+                }
+                val arriveByElapsedMs = (System.nanoTime() - arriveByStartNano) / 1_000_000.0
+                val arriveByHash = journeyHash(arriveByLastResult)
+
+                arriveByAvgMsSum[queryIndex] += arriveByElapsedMs / arriveByIterations
+                arriveByTotalMsSum[queryIndex] += arriveByElapsedMs
+                if (runIndex == 0) {
+                    arriveByLastHashes[queryIndex] = arriveByHash
+                } else if (arriveByHash != arriveByLastHashes[queryIndex]) {
+                    arriveByHashStable[queryIndex] = false
+                    arriveByLastHashes[queryIndex] = arriveByHash
+                }
+            }
+        }
+
         println()
         println("--- Forward Routing (getOptimizedPaths) ---")
-        println("($iterations iterations per query)")
+        println("Average over $benchmarkRuns full run(s), $forwardIterations iterations per query and per run")
         println()
 
-        val forwardHashes = mutableListOf<String>()
-        for ((names, originIds, destIds) in resolvedQueries) {
+        for ((queryIndex, query) in resolvedQueries.withIndex()) {
+            val (names, _, _) = query
             val (origin, dest) = names
-            val startNano = System.nanoTime()
-            var lastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
-            repeat(iterations) {
-                lastResult = raptor.getOptimizedPaths(originIds, destIds, 8 * 3600)
-            }
-            val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
-            val hash = journeyHash(lastResult)
-            forwardHashes.add(hash)
-            println("%-50s  %.2f ms avg  (%.0f ms total)  hash=%s".format(
-                "$origin -> $dest", elapsedMs / iterations, elapsedMs, hash
+            val avgMs = forwardAvgMsSum[queryIndex] / benchmarkRuns
+            val avgTotalMs = forwardTotalMsSum[queryIndex] / benchmarkRuns
+            val hashNote = if (forwardHashStable[queryIndex]) "" else " [hash changed across runs]"
+            println("%-50s  %.2f ms avg  (%.0f ms total avg/run)  hash=%s%s".format(
+                "$origin -> $dest", avgMs, avgTotalMs, forwardLastHashes[queryIndex], hashNote
             ))
         }
 
-        // Benchmark arrive-by routing
-        val arriveByIterations = 10
         println()
         println("--- Arrive-By Routing (getOptimizedPathsArriveBy) ---")
-        println("($arriveByIterations iterations per query)")
+        println("Average over $benchmarkRuns full run(s), $arriveByIterations iterations per query and per run")
         println()
 
-        val arriveByHashes = mutableListOf<String>()
-        for ((names, originIds, destIds) in resolvedQueries) {
+        for ((queryIndex, query) in resolvedQueries.withIndex()) {
+            val (names, _, _) = query
             val (origin, dest) = names
-            val startNano = System.nanoTime()
-            var lastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
-            repeat(arriveByIterations) {
-                lastResult = raptor.getOptimizedPathsArriveBy(originIds, destIds, 9 * 3600)
-            }
-            val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
-            val hash = journeyHash(lastResult)
-            arriveByHashes.add(hash)
-            println("%-50s  %.2f ms avg  (%.0f ms total)  hash=%s".format(
-                "$origin -> $dest (arrive-by)", elapsedMs / arriveByIterations, elapsedMs, hash
+            val avgMs = arriveByAvgMsSum[queryIndex] / benchmarkRuns
+            val avgTotalMs = arriveByTotalMsSum[queryIndex] / benchmarkRuns
+            val hashNote = if (arriveByHashStable[queryIndex]) "" else " [hash changed across runs]"
+            println("%-50s  %.2f ms avg  (%.0f ms total avg/run)  hash=%s%s".format(
+                "$origin -> $dest (arrive-by)", avgMs, avgTotalMs, arriveByLastHashes[queryIndex], hashNote
             ))
+        }
+
+        val forwardHashes = resolvedQueries.indices.map { idx ->
+            if (forwardHashStable[idx]) forwardLastHashes[idx] else "${forwardLastHashes[idx]}*"
+        }
+        val arriveByHashes = resolvedQueries.indices.map { idx ->
+            if (arriveByHashStable[idx]) arriveByLastHashes[idx] else "${arriveByLastHashes[idx]}*"
         }
 
         // Correctness hashes summary
@@ -148,6 +200,7 @@ object Benchmark {
         println("--- Correctness Hashes ---")
         println("Forward:   ${forwardHashes.joinToString(" ")}")
         println("Arrive-by: ${arriveByHashes.joinToString(" ")}")
+        println("(* means hash changed at least once across runs)")
 
         // Quick correctness check: display one journey
         println()
