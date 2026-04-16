@@ -17,9 +17,15 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         originIndices: List<Int>,
         destinationIndices: List<Int>,
         departureTime: Int,
-        routeFilter: RouteFilter? = null
+        routeFilter: RouteFilter? = null,
+        maxRounds: Int = 5
     ): Int {
-        val state = lastState?.also { it.reset() } ?: RaptorState(network, maxRounds = 5)
+        val existing = lastState
+        val state = if (existing != null && existing.maxRounds >= maxRounds) {
+            existing.also { it.reset() }
+        } else {
+            RaptorState(network, maxRounds = maxRounds)
+        }
         lastState = state
 
         if (debug) {

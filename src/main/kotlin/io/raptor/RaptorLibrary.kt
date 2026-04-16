@@ -114,7 +114,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
-        val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime, routeFilter)
+        val bestArrivalAtAnyRound = algorithm.route(originIndices, destinationIndices, departureTime, routeFilter, maxRounds)
 
         if (bestArrivalAtAnyRound == Int.MAX_VALUE) {
             return emptyList()
@@ -187,7 +187,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         while (low <= high) {
             val mid = (low + high) / 2
-            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter)
+            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds)
 
             if (bestArrival <= arrivalTime) {
                 bestMid = mid
@@ -201,7 +201,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         if (bestMid == -1) return emptyList()
         if (!lastWasSuccess) {
-            algorithm.route(originIndices, destinationIndices, bestMid, routeFilter)
+            algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
         }
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
     }
