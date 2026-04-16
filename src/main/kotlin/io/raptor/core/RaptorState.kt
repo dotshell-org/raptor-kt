@@ -50,11 +50,17 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     private var markedArrayPrev = IntArray(256)
     private var markedSizePrev = 0
 
-    // Track max round used for lazy reset of bestArrival and parentData
+    // Track max round used for lazy reset of parentData
     private var lastMaxRound = maxRounds // first reset fills everything
+    // Track max round written in bestArrival (separate from parentData because
+    // copyArrivalTimesToNextRound writes bestArrival without calling setParent)
+    private var lastBaRound = maxRounds
 
     fun reset() {
-        bestArrival.fill(Int.MAX_VALUE)
+        // Only reset bestArrival for rounds actually used in previous query
+        val baResetEnd = (lastBaRound + 1) * stopCount
+        java.util.Arrays.fill(bestArrival, 0, baResetEnd, Int.MAX_VALUE)
+        lastBaRound = 0
         // Only reset parent data for rounds actually used in previous query
         val parentResetEnd = (lastMaxRound + 1) * stopCount * PARENT_STRIDE
         java.util.Arrays.fill(parentData, 0, parentResetEnd, -1)
@@ -99,6 +105,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun copyArrivalTimesToNextRound(round: Int) {
         if (round !in 1..maxRounds) return
         System.arraycopy(bestArrival, (round - 1) * stopCount, bestArrival, round * stopCount, stopCount)
+        if (round > lastBaRound) lastBaRound = round
     }
 
     fun getBestArrival(stopIndex: Int): Int {
