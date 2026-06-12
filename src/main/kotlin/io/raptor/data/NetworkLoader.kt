@@ -1,12 +1,11 @@
 package io.raptor.data
 
 import io.raptor.model.*
-import java.io.InputStream
 
 object NetworkLoader {
 
-    fun loadStops(inputStream: InputStream): List<Stop> {
-        val reader = BinaryReader(inputStream)
+    fun loadStops(bytes: ByteArray): List<Stop> {
+        val reader = BinaryReader(bytes)
         val magic = reader.peekMagic()
         return when (magic) {
             "RSTS" -> loadStopsV1(reader)
@@ -15,8 +14,8 @@ object NetworkLoader {
         }
     }
 
-    fun loadRoutes(inputStream: InputStream): List<Route> {
-        val reader = BinaryReader(inputStream)
+    fun loadRoutes(bytes: ByteArray): List<Route> {
+        val reader = BinaryReader(bytes)
         val magic = reader.peekMagic()
         return when (magic) {
             "RRTS" -> loadRoutesV1(reader)
@@ -81,7 +80,12 @@ object NetworkLoader {
             val sortedTripIds = IntArray(tripCount) { tripIds[sortedIndices[it]] }
             val sortedFlat = IntArray(tripCount * stopCount)
             for (i in 0 until tripCount) {
-                System.arraycopy(flatStopTimes, sortedIndices[i] * stopCount, sortedFlat, i * stopCount, stopCount)
+                flatStopTimes.copyInto(
+                    destination = sortedFlat,
+                    destinationOffset = i * stopCount,
+                    startIndex = sortedIndices[i] * stopCount,
+                    endIndex = sortedIndices[i] * stopCount + stopCount
+                )
             }
 
             val overnight = hasOvernight(sortedFlat, tripCount, stopCount)

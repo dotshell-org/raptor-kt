@@ -59,11 +59,11 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun reset() {
         // Only reset bestArrival for rounds actually used in previous query
         val baResetEnd = (lastBaRound + 1) * stopCount
-        java.util.Arrays.fill(bestArrival, 0, baResetEnd, Int.MAX_VALUE)
+        bestArrival.fill(Int.MAX_VALUE, 0, baResetEnd)
         lastBaRound = 0
         // Only reset parent data for rounds actually used in previous query
         val parentResetEnd = (lastMaxRound + 1) * stopCount * PARENT_STRIDE
-        java.util.Arrays.fill(parentData, 0, parentResetEnd, -1)
+        parentData.fill(-1, 0, parentResetEnd)
         lastMaxRound = 0
         markedStops.fill(false)
         markedStopsPrevious.fill(false)
@@ -84,7 +84,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
 
     fun clearMarks() {
-        System.arraycopy(markedStops, 0, markedStopsPrevious, 0, markedStops.size)
+        markedStops.copyInto(markedStopsPrevious, 0, 0, markedStops.size)
         markedStops.fill(false)
 
         // Swap arrays
@@ -104,7 +104,12 @@ class RaptorState(val network: Network, val maxRounds: Int) {
      */
     fun copyArrivalTimesToNextRound(round: Int) {
         if (round !in 1..maxRounds) return
-        System.arraycopy(bestArrival, (round - 1) * stopCount, bestArrival, round * stopCount, stopCount)
+        bestArrival.copyInto(
+            destination = bestArrival,
+            destinationOffset = round * stopCount,
+            startIndex = (round - 1) * stopCount,
+            endIndex = (round - 1) * stopCount + stopCount
+        )
         if (round > lastBaRound) lastBaRound = round
     }
 
