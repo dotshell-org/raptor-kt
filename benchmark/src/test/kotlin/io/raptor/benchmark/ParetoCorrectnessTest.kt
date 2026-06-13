@@ -5,7 +5,6 @@ import io.raptor.data.NetworkLoader
 import org.junit.Assert.*
 import org.junit.BeforeClass
 import org.junit.Test
-import java.io.FileInputStream
 
 /**
  * Validates RAPTOR algorithm correctness on random queries:
@@ -26,10 +25,10 @@ class ParetoCorrectnessTest {
             require(config.isAvailable()) { "RTM data not available at ${config.stopsPath()}" }
 
             library = RaptorLibrary(
-                FileInputStream(config.stopsPath()),
-                FileInputStream(config.routesPath())
+                config.stopsPath().readBytes(),
+                config.routesPath().readBytes()
             )
-            val stops = NetworkLoader.loadStops(FileInputStream(config.stopsPath()))
+            val stops = NetworkLoader.loadStops(config.stopsPath().readBytes())
             stopIds = stops.map { it.id }
         }
     }

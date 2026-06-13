@@ -15,10 +15,10 @@ kotlin {
     }
 }
 
-// Include raptor-kt main sources directly (pure JVM, no Android APIs)
+// Include raptor-kt library sources directly (pure Kotlin, no platform APIs)
 sourceSets {
     main {
-        kotlin.srcDir("../src/main/kotlin")
+        kotlin.srcDir("../src/commonMain/kotlin")
     }
 }
 

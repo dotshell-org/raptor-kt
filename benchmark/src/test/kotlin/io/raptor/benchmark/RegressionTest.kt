@@ -5,7 +5,6 @@ import io.raptor.core.JourneyLeg
 import org.junit.Assert.assertEquals
 import org.junit.BeforeClass
 import org.junit.Test
-import java.io.FileInputStream
 
 /**
  * Regression test: computes deterministic hashes for known query results.
@@ -28,8 +27,8 @@ class RegressionTest {
             require(config.isAvailable()) { "RTM data not available at ${config.stopsPath()}" }
 
             library = RaptorLibrary(
-                FileInputStream(config.stopsPath()),
-                FileInputStream(config.routesPath())
+                config.stopsPath().readBytes(),
+                config.routesPath().readBytes()
             )
         }
 

@@ -1,7 +1,6 @@
 package io.raptor
 
 import java.io.File
-import java.io.FileInputStream
 
 object RouteFilterDemo {
     @JvmStatic
@@ -16,8 +15,8 @@ object RouteFilterDemo {
         }
 
         val raptor = RaptorLibrary(
-            stopsInputStream = FileInputStream(stopsFile),
-            routesInputStream = FileInputStream(routesFile)
+            stopsBytes = stopsFile.readBytes(),
+            routesBytes = routesFile.readBytes()
         )
 
         val departureTime = 10 * 3600

@@ -3,7 +3,6 @@ package io.raptor.benchmark
 import io.raptor.RaptorLibrary
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
-import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -25,8 +24,8 @@ open class LoadBenchmark {
     fun loadNetwork(bh: Blackhole) {
         val config = DatasetConfig.valueOf(dataset)
         val lib = RaptorLibrary(
-            stopsInputStream = FileInputStream(config.stopsPath()),
-            routesInputStream = FileInputStream(config.routesPath())
+            stopsBytes = config.stopsPath().readBytes(),
+            routesBytes = config.routesPath().readBytes()
         )
         bh.consume(lib)
     }

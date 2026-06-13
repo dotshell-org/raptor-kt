@@ -4,7 +4,6 @@ import io.raptor.RaptorLibrary
 import io.raptor.data.NetworkLoader
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
-import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -34,11 +33,11 @@ open class MemoryBenchmark {
     fun setup() {
         val config = DatasetConfig.valueOf(dataset)
         library = RaptorLibrary(
-            stopsInputStream = FileInputStream(config.stopsPath()),
-            routesInputStream = FileInputStream(config.routesPath())
+            stopsBytes = config.stopsPath().readBytes(),
+            routesBytes = config.routesPath().readBytes()
         )
 
-        val stops = NetworkLoader.loadStops(FileInputStream(config.stopsPath()))
+        val stops = NetworkLoader.loadStops(config.stopsPath().readBytes())
         val generator = RandomQueryGenerator(stops.map { it.id }, seed = 99L)
         queries = generator.generate(500)
 
