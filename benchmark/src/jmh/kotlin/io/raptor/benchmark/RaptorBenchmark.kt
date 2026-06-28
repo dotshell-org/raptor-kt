@@ -4,7 +4,6 @@ import io.raptor.RaptorLibrary
 import io.raptor.data.NetworkLoader
 import org.openjdk.jmh.annotations.*
 import org.openjdk.jmh.infra.Blackhole
-import java.io.FileInputStream
 import java.util.concurrent.TimeUnit
 
 /**
@@ -40,12 +39,12 @@ open class RaptorBenchmark {
 
         // Load library
         library = RaptorLibrary(
-            stopsInputStream = FileInputStream(config.stopsPath()),
-            routesInputStream = FileInputStream(config.routesPath())
+            stopsBytes = config.stopsPath().readBytes(),
+            routesBytes = config.routesPath().readBytes()
         )
 
         // Load stops separately to enumerate all IDs (getCurrentNetwork is private)
-        val stops = NetworkLoader.loadStops(FileInputStream(config.stopsPath()))
+        val stops = NetworkLoader.loadStops(config.stopsPath().readBytes())
         val allStopIds = stops.map { it.id }
 
         // Generate 1000 random queries with fixed seed for reproducibility

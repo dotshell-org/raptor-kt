@@ -1,7 +1,6 @@
 package io.raptor
 
 import java.io.File
-import java.io.FileInputStream
 
 object Benchmark {
     @JvmStatic
@@ -37,8 +36,8 @@ object Benchmark {
 
         // --- Load network with split timing ---
         val loadStart = System.nanoTime()
-        val stops = io.raptor.data.NetworkLoader.loadStops(FileInputStream(stopsFile))
-        val routes = io.raptor.data.NetworkLoader.loadRoutes(FileInputStream(routesFile))
+        val stops = io.raptor.data.NetworkLoader.loadStops(stopsFile.readBytes())
+        val routes = io.raptor.data.NetworkLoader.loadRoutes(routesFile.readBytes())
         val deserMs = (System.nanoTime() - loadStart) / 1_000_000.0
 
         val networkStart = System.nanoTime()
@@ -47,8 +46,8 @@ object Benchmark {
 
         // Build RaptorLibrary using the single-period constructor
         val raptor = RaptorLibrary(
-            stopsInputStream = FileInputStream(stopsFile),
-            routesInputStream = FileInputStream(routesFile)
+            stopsBytes = stopsFile.readBytes(),
+            routesBytes = routesFile.readBytes()
         )
         val totalLoadMs = deserMs + networkMs
 

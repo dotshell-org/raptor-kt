@@ -3,7 +3,6 @@ package io.raptor
 import io.raptor.data.NetworkLoader
 import io.raptor.model.Network
 import java.io.File
-import java.io.FileInputStream
 
 /**
  * Diagnostic tool to investigate why metro lines are never used in routing.
@@ -38,8 +37,8 @@ object MetroDiagnostic {
             println("  Files: ${stopsFile.name} (${stopsFile.length() / 1024}KB), ${routesFile.name} (${routesFile.length() / 1024}KB)")
             println("================================================================")
 
-            val stops = NetworkLoader.loadStops(FileInputStream(stopsFile))
-            val routes = NetworkLoader.loadRoutes(FileInputStream(routesFile))
+            val stops = NetworkLoader.loadStops(stopsFile.readBytes())
+            val routes = NetworkLoader.loadRoutes(routesFile.readBytes())
             val network = Network(stops, routes)
 
             println("${network.stopCount} stops, ${network.routeCount} routes")
@@ -116,8 +115,8 @@ object MetroDiagnostic {
         // 3. Routing test: Perrache -> Part-Dieu (should use metro A or B)
         println("--- Routing: Perrache -> Part-Dieu (dep 08:00) ---")
         val raptor = RaptorLibrary(
-            stopsInputStream = FileInputStream(stopsFile),
-            routesInputStream = FileInputStream(routesFile)
+            stopsBytes = stopsFile.readBytes(),
+            routesBytes = routesFile.readBytes()
         )
         val originStops = raptor.searchStopsByName("Perrache")
         val destStops = raptor.searchStopsByName("Part-Dieu")

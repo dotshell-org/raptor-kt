@@ -5,28 +5,27 @@ import io.raptor.core.RaptorAlgorithm
 import io.raptor.data.NetworkLoader
 import io.raptor.model.Network
 import io.raptor.model.Stop
-import java.io.InputStream
 
 /**
- * Data class representing a pair of input streams for a specific time period
+ * Binary data for a specific time period — the full `.bin` contents read into memory.
  * @param periodId Identifier for this time period (e.g., "winter2024", "summer2024")
- * @param stopsInputStream Stream for the stops binary file
- * @param routesInputStream Stream for the routes binary file
+ * @param stopsBytes Raw bytes of the stops binary file
+ * @param routesBytes Raw bytes of the routes binary file
  */
 data class PeriodData(
     val periodId: String,
-    val stopsInputStream: InputStream,
-    val routesInputStream: InputStream
+    val stopsBytes: ByteArray,
+    val routesBytes: ByteArray
 )
 
 /**
  * RAPTOR library for routing search with support for multiple time periods.
- * Use with Android: Pass a list of PeriodData objects from assets.
- * Example: 
+ * Cross-platform: pass the raw bytes of each period's `.bin` files.
+ * Example:
  * ```
  * RaptorLibrary(listOf(
- *     PeriodData("winter", context.assets.open("stops_winter.bin"), context.assets.open("routes_winter.bin")),
- *     PeriodData("summer", context.assets.open("stops_summer.bin"), context.assets.open("routes_summer.bin"))
+ *     PeriodData("winter", stopsWinterBytes, routesWinterBytes),
+ *     PeriodData("summer", stopsSummerBytes, routesSummerBytes)
  * ))
  * ```
  */
@@ -39,8 +38,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         require(periodDataList.isNotEmpty()) { "At least one period data must be provided" }
         
         networks = periodDataList.associate { periodData ->
-            val stops = NetworkLoader.loadStops(periodData.stopsInputStream)
-            val routes = NetworkLoader.loadRoutes(periodData.routesInputStream)
+            val stops = NetworkLoader.loadStops(periodData.stopsBytes)
+            val routes = NetworkLoader.loadRoutes(periodData.routesBytes)
             periodData.periodId to Network(stops, routes)
         }
         
@@ -51,8 +50,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
     /**
      * Alternative constructor for single period (backward compatibility)
      */
-    constructor(stopsInputStream: InputStream, routesInputStream: InputStream) : this(
-        listOf(PeriodData("default", stopsInputStream, routesInputStream))
+    constructor(stopsBytes: ByteArray, routesBytes: ByteArray) : this(
+        listOf(PeriodData("default", stopsBytes, routesBytes))
     )
     
     /**
@@ -355,7 +354,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val h = seconds / 3600
         val m = (seconds % 3600) / 60
         val s = seconds % 60
-        return if (h >= 24) "%02d:%02d:%02d(+1)".format(h - 24, m, s)
-        else "%02d:%02d:%02d".format(h, m, s)
+        fun p(v: Int): String = v.toString().padStart(2, '0')
+        return if (h >= 24) "${p(h - 24)}:${p(m)}:${p(s)}(+1)"
+        else "${p(h)}:${p(m)}:${p(s)}"
     }
 }

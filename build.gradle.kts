@@ -1,24 +1,30 @@
-buildscript {
-    repositories {
-        google()
-        mavenCentral()
-    }
-    dependencies {
-        classpath("com.android.tools.build:gradle:8.2.0")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:2.1.0")
-    }
-}
-
 plugins {
+    kotlin("multiplatform") version "2.1.0"
     id("com.android.library") version "8.2.0"
-    kotlin("android") version "2.1.0"
     id("maven-publish")
     id("signing")
     id("com.gradleup.nmcp") version "0.0.8"
 }
 
 group = "eu.dotshell"
-version = "1.5.0"
+version = "1.6.0"
+
+kotlin {
+    androidTarget {
+        publishLibraryVariants("release")
+        compilerOptions {
+            jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_1_8)
+        }
+    }
+    iosArm64()
+    iosSimulatorArm64()
+
+    sourceSets {
+        // commonMain holds the whole library (pure Kotlin, no platform APIs).
+        // The Kotlin stdlib is added automatically for every target.
+        val commonMain by getting
+    }
+}
 
 android {
     namespace = "eu.dotshell.raptor"
@@ -26,89 +32,49 @@ android {
 
     defaultConfig {
         minSdk = 21
-        
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-        consumerProguardFiles("consumer-rules.pro")
     }
 
-    buildTypes {
-        release {
-            isMinifyEnabled = false
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
-            )
-        }
-    }
-    
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-    }
-    
-    kotlinOptions {
-        jvmTarget = "1.8"
     }
 
     publishing {
         singleVariant("release") {
             withSourcesJar()
-            withJavadocJar()
         }
     }
 }
 
-val demoRuntime = configurations.create("demoRuntime") {
-    isCanBeResolved = true
-    isCanBeConsumed = false
-}
-
-dependencies {
-    implementation(kotlin("stdlib"))
-    
-    testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test.ext:junit:1.1.5")
-    androidTestImplementation("androidx.test.espresso:espresso-core:3.5.1")
-
-    demoRuntime(kotlin("stdlib"))
-}
-
+// Kotlin Multiplatform's maven-publish integration creates one publication per target
+// (kotlinMultiplatform metadata + androidRelease + iosArm64 + iosSimulatorArm64) automatically.
+// We only attach the shared POM metadata to each of them.
 publishing {
-    publications {
-        create<MavenPublication>("release") {
-            groupId = "eu.dotshell"
-            artifactId = "raptor-kt"
-            version = "1.5.0"
+    publications.withType<MavenPublication>().configureEach {
+        pom {
+            name.set("Raptor-KT")
+            description.set("RAPTOR algorithm implementation in Kotlin Multiplatform (Android + iOS)")
+            url.set("https://github.com/dotshell-org/raptor-kt")
 
-            afterEvaluate {
-                from(components["release"])
+            licenses {
+                license {
+                    name.set("The Apache License, Version 2.0")
+                    url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
+                }
             }
 
-            pom {
-                name.set("Raptor-KT")
-                description.set("RAPTOR algorithm implementation in Kotlin for Android")
-                url.set("https://github.com/yourusername/raptor-kt")
-                
-                licenses {
-                    license {
-                        name.set("The Apache License, Version 2.0")
-                        url.set("http://www.apache.org/licenses/LICENSE-2.0.txt")
-                    }
+            developers {
+                developer {
+                    id.set("tristan")
+                    name.set("Tristan")
+                    email.set("contact@dotshell.eu")
                 }
-                
-                developers {
-                    developer {
-                        id.set("tristan")
-                        name.set("Tristan")
-                        email.set("contact@dotshell.eu")
-                    }
-                }
-                
-                scm {
-                    connection.set("scm:git:git://github.com/yourusername/raptor-kt.git")
-                    developerConnection.set("scm:git:ssh://github.com:yourusername/raptor-kt.git")
-                    url.set("https://github.com/yourusername/raptor-kt")
-                }
+            }
+
+            scm {
+                connection.set("scm:git:git://github.com/dotshell-org/raptor-kt.git")
+                developerConnection.set("scm:git:ssh://github.com:dotshell-org/raptor-kt.git")
+                url.set("https://github.com/dotshell-org/raptor-kt")
             }
         }
     }
@@ -126,95 +92,11 @@ signing {
     val signingKeyId = findProperty("signing.keyId") as String? ?: System.getenv("SIGNING_KEY_ID")
     val signingPassword = findProperty("signing.password") as String? ?: System.getenv("SIGNING_PASSWORD")
     val signingKeyRingFile = findProperty("signing.secretKeyRingFile") as String? ?: System.getenv("SIGNING_KEY_RING_FILE")
-    
+
     if (signingKeyId != null && signingPassword != null && signingKeyRingFile != null) {
-        // Use GPG signing with local keyring
         extra["signing.keyId"] = signingKeyId
         extra["signing.password"] = signingPassword
         extra["signing.secretKeyRingFile"] = signingKeyRingFile
-        sign(publishing.publications["release"])
+        sign(publishing.publications)
     }
-}
-
-tasks.register<JavaExec>("runRouteFilterDemo") {
-    group = "verification"
-    description = "Runs a route filter demo that prints results to the terminal."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.RouteFilterDemo")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-}
-
-tasks.register<JavaExec>("runMetroDiagnostic") {
-    group = "verification"
-    description = "Diagnoses metro connectivity issues."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.MetroDiagnostic")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-}
-
-tasks.register<JavaExec>("runBenchmark") {
-    group = "verification"
-    description = "Runs the RAPTOR performance benchmark."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.Benchmark")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-}
-
-tasks.register<JavaExec>("runBenchmarkParis") {
-    group = "verification"
-    description = "Runs the RAPTOR performance benchmark on Paris (IDFM) data."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.BenchmarkParis")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-    jvmArgs = listOf("-Xmx512m")
-}
-
-tasks.register<JavaExec>("runBenchmarkRTM") {
-    group = "verification"
-    description = "Runs the RAPTOR performance benchmark on Marseille (RTM) data."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.BenchmarkRTM")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-}
-
-tasks.register<JavaExec>("listStopsRTM") {
-    group = "verification"
-    description = "Lists all distinct stop names from the RTM (Marseille) data."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.ListStopsRTM")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-}
-
-tasks.register<JavaExec>("runBenchmarkFinlande") {
-    group = "verification"
-    description = "Runs the RAPTOR performance benchmark on Finland data."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.BenchmarkFinlande")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-    jvmArgs = listOf("-Xmx1g")
-}
-
-tasks.register<JavaExec>("listStopsFinlande") {
-    group = "verification"
-    description = "Lists all distinct stop names from the Finland data."
-    val debugUnitTestClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest")
-    val debugMainClasses = layout.buildDirectory.dir("tmp/kotlin-classes/debug")
-    classpath = files(debugUnitTestClasses, debugMainClasses) + demoRuntime
-    mainClass.set("io.raptor.ListStopsFinlande")
-    dependsOn("compileDebugKotlin", "compileDebugUnitTestKotlin")
-    jvmArgs = listOf("-Xmx512m")
 }

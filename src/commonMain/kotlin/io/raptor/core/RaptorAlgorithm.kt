@@ -284,8 +284,9 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         val h = seconds / 3600
         val m = (seconds % 3600) / 60
         val s = seconds % 60
-        return if (h >= 24) "%02d:%02d:%02d(+1)".format(h - 24, m, s)
-        else "%02d:%02d:%02d".format(h, m, s)
+        fun p(v: Int): String = v.toString().padStart(2, '0')
+        return if (h >= 24) "${p(h - 24)}:${p(m)}:${p(s)}(+1)"
+        else "${p(h)}:${p(m)}:${p(s)}"
     }
 
     fun getArrivalTime(stopIndex: Int, round: Int): Int {
