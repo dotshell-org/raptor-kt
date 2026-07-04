@@ -104,8 +104,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
-        val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
-        val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+        val originIndices = network.mapStopIdsToIndices(originStopIds)
+        val destinationIndices = network.mapStopIdsToIndices(destinationStopIds)
 
         if (originIndices.isEmpty() || destinationIndices.isEmpty()) {
             return emptyList()
@@ -166,8 +166,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
-        val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
-        val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+        val originIndices = network.mapStopIdsToIndices(originStopIds)
+        val destinationIndices = network.mapStopIdsToIndices(destinationStopIds)
 
         if (originIndices.isEmpty() || destinationIndices.isEmpty()) {
             return emptyList()
@@ -235,6 +235,19 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         }
 
         return paretoJourneys
+    }
+
+    /**
+     * Maps stop IDs to internal indices in a single pass (drops unknown ids), allocating one list
+     * instead of the two produced by map { }.filter { } plus its lambdas.
+     */
+    private fun Network.mapStopIdsToIndices(ids: List<Int>): List<Int> {
+        val out = ArrayList<Int>(ids.size)
+        for (i in ids.indices) {
+            val ix = getStopIndex(ids[i])
+            if (ix != -1) out.add(ix)
+        }
+        return out
     }
 
     private fun buildRouteFilter(

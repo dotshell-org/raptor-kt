@@ -40,9 +40,9 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         const val PARENT_STRIDE = 7
     }
 
-    // Boolean arrays for O(1) mark checks
-    private val markedStops = BooleanArray(network.stopCount)
-    private val markedStopsPrevious = BooleanArray(network.stopCount)
+    // Boolean arrays for O(1) mark checks (var: swapped in clearMarks to avoid O(stopCount) copies)
+    private var markedStops = BooleanArray(network.stopCount)
+    private var markedStopsPrevious = BooleanArray(network.stopCount)
 
     // Incremental tracking of marked stop indices (IntArray-backed, no boxing)
     private var markedArray = IntArray(256)
@@ -84,10 +84,16 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
 
     fun clearMarks() {
-        markedStops.copyInto(markedStopsPrevious, 0, 0, markedStops.size)
-        markedStops.fill(false)
+        // Move current marks to previous and empty current, in O(marked) instead of 2×O(stopCount).
+        // markedStopsPrevious still holds last round's marks: clear only its set entries (listed in
+        // markedArrayPrev), then swap so it becomes the fresh empty "current" and the old "current"
+        // boolean array becomes "previous".
+        for (i in 0 until markedSizePrev) {
+            markedStopsPrevious[markedArrayPrev[i]] = false
+        }
+        val tmpBool = markedStopsPrevious; markedStopsPrevious = markedStops; markedStops = tmpBool
 
-        // Swap arrays
+        // Swap the index arrays in the same way
         val tmpArr = markedArrayPrev; markedArrayPrev = markedArray; markedArray = tmpArr
         markedSizePrev = markedSize
         markedSize = 0
