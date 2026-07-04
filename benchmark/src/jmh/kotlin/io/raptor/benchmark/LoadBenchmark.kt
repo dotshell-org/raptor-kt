@@ -17,7 +17,7 @@ import java.util.concurrent.TimeUnit
 @Measurement(iterations = 10)
 open class LoadBenchmark {
 
-    @Param("PARIS", "FINLAND", "RTM")
+    @Param("LYON")
     lateinit var dataset: String
 
     @Benchmark

@@ -30,15 +30,17 @@ dependencies {
 }
 
 jmh {
-    fork = 3
-    warmupIterations = 10
-    iterations = 20
+    fork = 2
+    warmupIterations = 5
+    iterations = 10
     resultFormat = "JSON"
     resultsFile = project.file("build/reports/jmh/results.json")
     jvmArgs = listOf("-Xmx1g", "-Xms512m")
     jvmArgsAppend = listOf("-Draptor.dataRoot=${rootProject.projectDir}")
     profilers = listOf("gc")
-    includes = listOf("io\\.raptor\\.benchmark\\..*")
+    // Only the routing benchmark (Load/Memory target absent datasets and would blow the 3-min budget).
+    // gc profiler still gives alloc/op on the routing benchmark itself.
+    includes = listOf("io\\.raptor\\.benchmark\\.RaptorBenchmark")
 }
 
 tasks.test {
