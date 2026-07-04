@@ -18,7 +18,8 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         destinationIndices: List<Int>,
         departureTime: Int,
         routeFilter: RouteFilter? = null,
-        maxRounds: Int = 5
+        maxRounds: Int = 5,
+        trackParents: Boolean = true
     ): Int {
         val existing = lastState
         val state = if (existing != null && existing.maxRounds >= maxRounds) {
@@ -27,6 +28,9 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             RaptorState(network, maxRounds = maxRounds)
         }
         lastState = state
+        // Parent tracking is gated on the state (not threaded through the hot explore* methods, so their
+        // JIT compilation is unchanged): arrive-by binary-search probes disable it to skip setParent writes.
+        state.trackParents = trackParents
 
         if (debug) {
             println("Route search: ${network.stops[originIndices[0]].name} -> ${network.stops[destinationIndices[0]].name}")

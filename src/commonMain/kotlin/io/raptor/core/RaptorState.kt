@@ -50,6 +50,10 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     private var markedArrayPrev = IntArray(256)
     private var markedSizePrev = 0
 
+    // When false, setParent is a no-op (arrive-by binary-search probes only need arrival times, not
+    // reconstructable journeys). Set per query by RaptorAlgorithm.route().
+    var trackParents: Boolean = true
+
     // Track max round used for lazy reset of parentData
     private var lastMaxRound = maxRounds // first reset fills everything
     // Track max round written in bestArrival (separate from parentData because
@@ -152,6 +156,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         pStopIndex: Int, pRound: Int, routeIdx: Int,
         depTime: Int, tripIdx: Int, boardingPos: Int, alightingPos: Int
     ) {
+        if (!trackParents) return
         if (round > lastMaxRound) lastMaxRound = round
         val base = (round * stopCount + stopIndex) * PARENT_STRIDE
         parentData[base + P_STOP] = pStopIndex

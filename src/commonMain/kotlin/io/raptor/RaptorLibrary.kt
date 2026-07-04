@@ -178,30 +178,27 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
-        // Binary search to find the latest departure that arrives on time
+        // Binary search to find the latest departure that arrives on time.
+        // Probes only need arrival times, not journeys, so skip parent tracking (trackParents = false).
         var low = earliestDeparture
         var high = arrivalTime
         var bestMid = -1
-        var lastWasSuccess = false
 
         while (low <= high) {
             val mid = (low + high) / 2
-            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds)
+            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds, trackParents = false)
 
             if (bestArrival <= arrivalTime) {
                 bestMid = mid
-                lastWasSuccess = true
                 low = mid + 60
             } else {
-                lastWasSuccess = false
                 high = mid - 60
             }
         }
 
         if (bestMid == -1) return emptyList()
-        if (!lastWasSuccess) {
-            algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
-        }
+        // Final tracked run at the best departure so journeys can be reconstructed.
+        algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
     }
 
