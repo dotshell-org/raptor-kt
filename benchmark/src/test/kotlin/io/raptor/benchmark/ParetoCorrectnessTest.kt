@@ -21,8 +21,8 @@ class ParetoCorrectnessTest {
         @BeforeClass
         @JvmStatic
         fun setup() {
-            val config = DatasetConfig.RTM // Smallest dataset = fastest tests
-            require(config.isAvailable()) { "RTM data not available at ${config.stopsPath()}" }
+            val config = DatasetConfig.LYON // Only dataset available locally (TCL Lyon)
+            require(config.isAvailable()) { "LYON data not available at ${config.stopsPath()}" }
 
             library = RaptorLibrary(
                 config.stopsPath().readBytes(),

@@ -2,114 +2,95 @@ package io.raptor.benchmark
 
 import io.raptor.RaptorLibrary
 import io.raptor.core.JourneyLeg
+import io.raptor.data.NetworkLoader
 import org.junit.Assert.assertEquals
 import org.junit.BeforeClass
 import org.junit.Test
 
 /**
- * Regression test: computes deterministic hashes for known query results.
- * If the routing algorithm changes output, these hashes change.
+ * Regression guard: computes a single deterministic hash over the routing output of many
+ * seeded random queries. Dataset-agnostic (runs on whatever dataset is available locally — LYON).
+ *
+ * Purpose: prove that a performance optimization does NOT change routing results. Any change to the
+ * journeys produced (arrival times, legs, transfers, route names) flips the hash → test fails.
  *
  * Workflow:
- * 1. First run: prints reference hashes to stdout
- * 2. Hard-code the hashes as expected values
- * 3. Subsequent runs: assert hashes match (any algorithm change = test failure)
+ * 1. First run: EXPECTED_* are null, the test only prints the observed hashes (never fails).
+ * 2. Lock the printed hashes into EXPECTED_FORWARD / EXPECTED_ARRIVE_BY below.
+ * 3. Subsequent runs (after each optimization): the hash must match → identical output guaranteed.
  */
 class RegressionTest {
 
     companion object {
+        // Baseline hashes (LYON) locked from the first run — any optimization must reproduce them exactly.
+        private val EXPECTED_FORWARD: String? = "30337ac4be89420b"
+        private val EXPECTED_ARRIVE_BY: String? = "f924a128d7f02d33"
+
+        private const val FORWARD_QUERIES = 500
+        private const val ARRIVE_BY_QUERIES = 200
+
         private lateinit var library: RaptorLibrary
+        private lateinit var stopIds: List<Int>
 
         @BeforeClass
         @JvmStatic
         fun setup() {
-            val config = DatasetConfig.RTM
-            require(config.isAvailable()) { "RTM data not available at ${config.stopsPath()}" }
+            val config = DatasetConfig.LYON
+            require(config.isAvailable()) { "LYON data not available at ${config.stopsPath()}" }
 
             library = RaptorLibrary(
                 config.stopsPath().readBytes(),
                 config.routesPath().readBytes()
             )
+            stopIds = NetworkLoader.loadStops(config.stopsPath().readBytes()).map { it.id }
         }
 
-        /**
-         * Deterministic hash of journey structure, reusing the pattern from existing benchmarks.
-         */
-        fun journeyHash(journeys: List<List<JourneyLeg>>): String {
-            var h = 17L
-            for (journey in journeys) {
-                h = h * 31 + journey.size
-                for (leg in journey) {
-                    h = h * 31 + leg.fromStopIndex
-                    h = h * 31 + leg.toStopIndex
-                    h = h * 31 + leg.departureTime
-                    h = h * 31 + leg.arrivalTime
-                    h = h * 31 + (if (leg.isTransfer) 1 else 0)
-                    h = h * 31 + (leg.routeName?.hashCode()?.toLong() ?: 0L)
+        /** Deterministic 64-bit rolling hash over the full structure of a result set. */
+        private fun hashResults(results: List<List<List<JourneyLeg>>>): String {
+            var h = 1125899906842597L // large prime
+            for (journeys in results) {
+                h = h * 31 + journeys.size
+                for (journey in journeys) {
+                    h = h * 31 + journey.size
+                    for (leg in journey) {
+                        h = h * 31 + leg.fromStopIndex
+                        h = h * 31 + leg.toStopIndex
+                        h = h * 31 + leg.departureTime
+                        h = h * 31 + leg.arrivalTime
+                        h = h * 31 + (if (leg.isTransfer) 1 else 0)
+                        h = h * 31 + (leg.routeName?.hashCode()?.toLong() ?: 0L)
+                    }
                 }
             }
-            return "%08x".format(h.toInt())
+            return "%016x".format(h)
         }
     }
 
-    /**
-     * Known O-D pairs on RTM Marseille.
-     * Departure at 08:00 (28800s), default maxRounds=5.
-     *
-     * On first run, hashes are printed. Once confirmed stable, uncomment
-     * the assertEquals lines to lock in reference values.
-     */
     @Test
-    fun testReferenceQueriesStable() {
-        val queries = listOf(
-            "Vieux-Port" to "La Rose",
-            "Castellane" to "Bougainville",
-            "Gare St Charles" to "Rond-Point du Prado"
-        )
-
-        val hashes = queries.map { (origin, dest) ->
-            val originIds = library.searchStopsByName(origin).map { it.id }
-            val destIds = library.searchStopsByName(dest).map { it.id }
-            val result = library.getOptimizedPaths(originIds, destIds, 8 * 3600)
-            journeyHash(result)
+    fun forwardRoutingOutputIsStable() {
+        val queries = RandomQueryGenerator(stopIds, seed = 12345L).generate(FORWARD_QUERIES)
+        val results = queries.map { q ->
+            library.getOptimizedPaths(q.originIds, q.destIds, q.departureTime)
         }
+        val hash = hashResults(results)
+        println("=== Forward regression hash (LYON, $FORWARD_QUERIES queries): $hash ===")
 
-        println("=== Regression Reference Hashes (RTM, dep 08:00) ===")
-        for ((i, pair) in queries.withIndex()) {
-            println("  ${pair.first} -> ${pair.second}: ${hashes[i]}")
+        EXPECTED_FORWARD?.let {
+            assertEquals("Forward routing output changed vs baseline", it, hash)
         }
-
-        // TODO: Uncomment after first run to lock in reference values:
-        // assertEquals("Vieux-Port -> La Rose", "<hash>", hashes[0])
-        // assertEquals("Castellane -> Bougainville", "<hash>", hashes[1])
-        // assertEquals("Gare St Charles -> Rond-Point du Prado", "<hash>", hashes[2])
     }
 
-    /**
-     * Arrive-by regression test.
-     * Arrival at 09:00 (32400s), default searchWindow=120min.
-     */
     @Test
-    fun testArriveByReferenceQueriesStable() {
-        val queries = listOf(
-            "Vieux-Port" to "La Rose",
-            "Castellane" to "Bougainville"
-        )
-
-        val hashes = queries.map { (origin, dest) ->
-            val originIds = library.searchStopsByName(origin).map { it.id }
-            val destIds = library.searchStopsByName(dest).map { it.id }
-            val result = library.getOptimizedPathsArriveBy(originIds, destIds, 9 * 3600)
-            journeyHash(result)
+    fun arriveByRoutingOutputIsStable() {
+        val queries = RandomQueryGenerator(stopIds, seed = 54321L).generate(ARRIVE_BY_QUERIES)
+        val results = queries.map { q ->
+            library.getOptimizedPathsArriveBy(q.originIds, q.destIds, q.departureTime + 3600)
         }
+        val hash = hashResults(results)
+        println("=== Arrive-by regression hash (LYON, $ARRIVE_BY_QUERIES queries): $hash ===")
 
-        println("=== Arrive-By Regression Reference Hashes (RTM, arr 09:00) ===")
-        for ((i, pair) in queries.withIndex()) {
-            println("  ${pair.first} -> ${pair.second}: ${hashes[i]}")
+        EXPECTED_ARRIVE_BY?.let {
+            assertEquals("Arrive-by routing output changed vs baseline", it, hash)
         }
-
-        // TODO: Uncomment after first run:
-        // assertEquals("Arrive-by Vieux-Port -> La Rose", "<hash>", hashes[0])
-        // assertEquals("Arrive-by Castellane -> Bougainville", "<hash>", hashes[1])
     }
 }
