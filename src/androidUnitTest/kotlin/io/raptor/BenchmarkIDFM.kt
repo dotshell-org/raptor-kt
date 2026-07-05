@@ -2,18 +2,13 @@ package io.raptor
 
 import java.io.File
 
-object BenchmarkFinlande {
-    // Extended maxRounds for long-distance intercity queries (Utsjoki needs many transfers)
-    private const val LONG_DISTANCE_MAX_ROUNDS = 15
-    // 24h search window for arrive-by on long-distance queries
-    private const val LONG_DISTANCE_SEARCH_WINDOW_MIN = 1440
-
+object BenchmarkParis {
     @JvmStatic
     fun main(args: Array<String>) {
-        val baseDir = args.getOrNull(0) ?: "raptor_data_finlande"
+        val baseDir = args.getOrNull(0) ?: "raptor_data_paris"
         val dir = File(baseDir)
         if (!dir.exists() || !dir.isDirectory) {
-            println("[Benchmark Finlande] Directory not found: $baseDir")
+            println("[Benchmark Paris] Directory not found: $baseDir")
             return
         }
 
@@ -24,11 +19,11 @@ object BenchmarkFinlande {
             routesFile = dir.listFiles()?.firstOrNull { it.name.startsWith("routes") && it.name.endsWith(".bin") } ?: routesFile
         }
         if (!stopsFile.exists() || !routesFile.exists()) {
-            println("[Benchmark Finlande] No stops/routes .bin files found in: $baseDir")
+            println("[Benchmark Paris] No stops/routes .bin files found in: $baseDir")
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark — Finland ===")
+        println("=== RAPTOR-KMP Performance Benchmark — Paris (IDFM) ===")
         println("Data: $baseDir")
         println()
 
@@ -63,42 +58,27 @@ object BenchmarkFinlande {
         println("Memory delta: %.2f MB".format((memAfter - memBefore) / (1024.0 * 1024.0)))
         println()
 
-        // Finland test queries — mix of Helsinki urban, suburban, and intercity
-        // Long-distance queries (marked true) use extended maxRounds and search window
-        data class Query(val origin: String, val dest: String, val longDistance: Boolean = false)
-
+        // Paris-specific test queries (stop names must match IDFM GTFS exactly)
         val queries = listOf(
-            Query("Rautatientori", "Mellunm"),                   // Helsinki metro east
-            Query("Kamppi", "Tapiola"),                           // Helsinki -> Espoo metro west
-            Query("Pasila", "Tikkurila"),                         // Helsinki -> Vantaa rail
-            Query("Herttoniemi", "Kontula"),                      // Helsinki metro suburban
-            Query("Kalasatama", "Matinkyl"),                      // Helsinki east -> Espoo west metro
-            Query("Helsinki", "Tampere"),                         // intercity rail ~180km
-            Query("Helsinki", "Turku"),                           // intercity rail ~170km
-            Query("Rovaniemi", "Helsinki", longDistance = true),  // Lapland -> Helsinki ~820km
-            Query("Nuorgam", "Helsinki", longDistance = true),    // Northernmost EU village -> Helsinki ~1300km
-            Query("Utsjoki", "Helsinki", longDistance = true),    // Isolated stop (no transfers in GTFS) -> 0 journeys expected
+            "Gare de Lyon" to "Gare du Nord",
+            "Gare Saint-Lazare" to "Montparnasse Bienvenue", // metro 13
+            "Charles de Gaulle - Etoile" to "Nation",        // metro 1 end-to-end
+            "Republique" to "Bastille",                      // short metro trip
+            "Gare du Nord" to "Gare Montparnasse",           // cross-city
+            "Bastille" to "Gare Saint-Lazare",               // multi-transfer
+            "Glacière" to "Bonne Nouvelle"
         )
 
         // Resolve stop IDs
-        data class ResolvedQuery(
-            val origin: String,
-            val dest: String,
-            val originIds: List<Int>,
-            val destIds: List<Int>,
-            val longDistance: Boolean
-        )
-
-        val resolvedQueries = queries.mapNotNull { q ->
-            val originIds = raptor.searchStopsByName(q.origin).map { it.id }
-            val destIds = raptor.searchStopsByName(q.dest).map { it.id }
+        val resolvedQueries = queries.mapNotNull { (origin, dest) ->
+            val originIds = raptor.searchStopsByName(origin).map { it.id }
+            val destIds = raptor.searchStopsByName(dest).map { it.id }
             if (originIds.isEmpty() || destIds.isEmpty()) {
-                println("SKIP: ${q.origin} -> ${q.dest} (stops not found)")
+                println("SKIP: $origin -> $dest (stops not found)")
                 null
             } else {
-                println("OK: ${q.origin} (${originIds.size} stops) -> ${q.dest} (${destIds.size} stops)" +
-                    if (q.longDistance) " [LONG DISTANCE: maxRounds=$LONG_DISTANCE_MAX_ROUNDS, window=${LONG_DISTANCE_SEARCH_WINDOW_MIN}min]" else "")
-                ResolvedQuery(q.origin, q.dest, originIds, destIds, q.longDistance)
+                println("OK: $origin (${originIds.size} stops) -> $dest (${destIds.size} stops)")
+                Triple(origin to dest, originIds, destIds)
             }
         }
 
@@ -119,68 +99,54 @@ object BenchmarkFinlande {
         // Warm up JVM
         println("Warming up JVM...")
         repeat(3) {
-            for (rq in resolvedQueries) {
-                val mr = if (rq.longDistance) LONG_DISTANCE_MAX_ROUNDS else 5
-                raptor.getOptimizedPaths(rq.originIds, rq.destIds, 8 * 3600, maxRounds = mr)
+            for ((_, originIds, destIds) in resolvedQueries) {
+                raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
             }
         }
 
         // Benchmark forward routing
         val iterations = 50
-        val longDistanceIterations = 10  // fewer iterations for long-distance (much slower)
         println()
         println("--- Forward Routing (getOptimizedPaths, dep 08:00) ---")
-        println("($iterations iterations per query, $longDistanceIterations for long-distance)")
+        println("($iterations iterations per query)")
         println()
 
         val forwardHashes = mutableListOf<String>()
-        for (rq in resolvedQueries) {
-            val mr = if (rq.longDistance) LONG_DISTANCE_MAX_ROUNDS else 5
-            val iters = if (rq.longDistance) longDistanceIterations else iterations
+        for ((names, originIds, destIds) in resolvedQueries) {
+            val (origin, dest) = names
             val startNano = System.nanoTime()
             var lastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
-            repeat(iters) {
-                lastResult = raptor.getOptimizedPaths(rq.originIds, rq.destIds, 8 * 3600, maxRounds = mr)
+            repeat(iterations) {
+                lastResult = raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
             }
             val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
             val hash = journeyHash(lastResult)
             forwardHashes.add(hash)
-            val suffix = if (rq.longDistance) " [maxR=$mr]" else ""
             println("%-55s  %.2f ms avg  (%.0f ms total)  journeys=%d  hash=%s".format(
-                "${rq.origin} -> ${rq.dest}$suffix", elapsedMs / iters, elapsedMs, lastResult.size, hash
+                "$origin -> $dest", elapsedMs / iterations, elapsedMs, lastResult.size, hash
             ))
         }
 
         // Benchmark arrive-by routing
         val arriveByIterations = 5
-        val longDistanceArriveByIterations = 2  // very few for long-distance arrive-by
         println()
-        println("--- Arrive-By Routing (getOptimizedPathsArriveBy) ---")
-        println("($arriveByIterations iterations per query, $longDistanceArriveByIterations for long-distance)")
-        println("Standard: arr 09:00, Long-distance: arr 23:59 window=${LONG_DISTANCE_SEARCH_WINDOW_MIN}min")
+        println("--- Arrive-By Routing (getOptimizedPathsArriveBy, arr 09:00) ---")
+        println("($arriveByIterations iterations per query)")
         println()
 
         val arriveByHashes = mutableListOf<String>()
-        for (rq in resolvedQueries) {
-            val mr = if (rq.longDistance) LONG_DISTANCE_MAX_ROUNDS else 5
-            val iters = if (rq.longDistance) longDistanceArriveByIterations else arriveByIterations
-            // Long-distance: arrive by 23:59 with 24h window; standard: arrive by 09:00
-            val arrTime = if (rq.longDistance) 23 * 3600 + 59 * 60 else 9 * 3600
-            val windowMin = if (rq.longDistance) LONG_DISTANCE_SEARCH_WINDOW_MIN else 120
+        for ((names, originIds, destIds) in resolvedQueries) {
+            val (origin, dest) = names
             val startNano = System.nanoTime()
             var lastResult: List<List<io.raptor.core.JourneyLeg>> = emptyList()
-            repeat(iters) {
-                lastResult = raptor.getOptimizedPathsArriveBy(
-                    rq.originIds, rq.destIds, arrTime,
-                    maxRounds = mr, searchWindowMinutes = windowMin
-                )
+            repeat(arriveByIterations) {
+                lastResult = raptor.getOptimizedPathsArriveBy(originIds, destIds, 9 * 3600)
             }
             val elapsedMs = (System.nanoTime() - startNano) / 1_000_000.0
             val hash = journeyHash(lastResult)
             arriveByHashes.add(hash)
-            val suffix = if (rq.longDistance) " [maxR=$mr, win=${windowMin}m]" else ""
             println("%-55s  %.2f ms avg  (%.0f ms total)  journeys=%d  hash=%s".format(
-                "${rq.origin} -> ${rq.dest} (arrive-by)$suffix", elapsedMs / iters, elapsedMs, lastResult.size, hash
+                "$origin -> $dest (arrive-by)", elapsedMs / arriveByIterations, elapsedMs, lastResult.size, hash
             ))
         }
 
@@ -190,14 +156,13 @@ object BenchmarkFinlande {
         println("Forward:   ${forwardHashes.joinToString(" ")}")
         println("Arrive-by: ${arriveByHashes.joinToString(" ")}")
 
-        // Display journeys for correctness check
+        // Display one journey for correctness check
         println()
         println("--- Correctness Check ---")
-        for (rq in resolvedQueries) {
-            val mr = if (rq.longDistance) LONG_DISTANCE_MAX_ROUNDS else 5
-            val journeys = raptor.getOptimizedPaths(rq.originIds, rq.destIds, 8 * 3600, maxRounds = mr)
-            println("${rq.origin} -> ${rq.dest}: ${journeys.size} Pareto-optimal journey(s)" +
-                if (rq.longDistance) " [maxRounds=$mr]" else "")
+        for ((names, originIds, destIds) in resolvedQueries) {
+            val (origin, dest) = names
+            val journeys = raptor.getOptimizedPaths(originIds, destIds, 21 * 3600)
+            println("$origin -> $dest: ${journeys.size} Pareto-optimal journey(s)")
             for ((idx, journey) in journeys.withIndex()) {
                 val dep = journey.first().departureTime
                 val arr = journey.last().arrivalTime

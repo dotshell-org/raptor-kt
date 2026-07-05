@@ -7,7 +7,7 @@ plugins {
 }
 
 group = "eu.dotshell"
-version = "1.6.0"
+version = "1.7.0"
 
 kotlin {
     androidTarget {
@@ -52,9 +52,9 @@ android {
 publishing {
     publications.withType<MavenPublication>().configureEach {
         pom {
-            name.set("Raptor-KT")
+            name.set("Raptor-KMP")
             description.set("RAPTOR algorithm implementation in Kotlin Multiplatform (Android + iOS)")
-            url.set("https://github.com/dotshell-org/raptor-kt")
+            url.set("https://github.com/dotshell-org/raptor-kmp")
 
             licenses {
                 license {
@@ -72,9 +72,9 @@ publishing {
             }
 
             scm {
-                connection.set("scm:git:git://github.com/dotshell-org/raptor-kt.git")
-                developerConnection.set("scm:git:ssh://github.com:dotshell-org/raptor-kt.git")
-                url.set("https://github.com/dotshell-org/raptor-kt")
+                connection.set("scm:git:git://github.com/dotshell-org/raptor-kmp.git")
+                developerConnection.set("scm:git:ssh://github.com:dotshell-org/raptor-kmp.git")
+                url.set("https://github.com/dotshell-org/raptor-kmp")
             }
         }
     }

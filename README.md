@@ -1,8 +1,8 @@
-# Raptor-KT
+# Raptor-KMP
 
-[![Maven Central](https://img.shields.io/maven-central/v/eu.dotshell/raptor-kt)](https://central.sonatype.com/artifact/eu.dotshell/raptor-kt)
+[![Maven Central](https://img.shields.io/maven-central/v/eu.dotshell/raptor-kmp)](https://central.sonatype.com/artifact/eu.dotshell/raptor-kmp)
 
-RAPTOR (Round-Based Public Transit Optimized Router) implementation in Kotlin for Android.
+RAPTOR (Round-Based Public Transit Optimized Router) implementation in Kotlin Multiplatform (Android + iOS).
 
 ## Installation
 
@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kt:1.1.0")
+    implementation("eu.dotshell:raptor-kmp:1.7.0")
 }
 ```
 
@@ -21,8 +21,8 @@ dependencies {
 ```kotlin
 // Place your stops.bin and routes.bin files in assets folder
 val raptor = RaptorLibrary(
-    stopsInputStream = assets.open("stops.bin"),
-    routesInputStream = assets.open("routes.bin")
+    stopsBytes = assets.open("stops.bin").readBytes(),
+    routesBytes = assets.open("routes.bin").readBytes()
 )
 
 // Search for stops
@@ -52,13 +52,13 @@ If you have multiple sets of transit data for different time periods (e.g., wint
 val raptor = RaptorLibrary(listOf(
     PeriodData(
         periodId = "winter",
-        stopsInputStream = assets.open("stops_winter.bin"),
-        routesInputStream = assets.open("routes_winter.bin")
+        stopsBytes = assets.open("stops_winter.bin").readBytes(),
+        routesBytes = assets.open("routes_winter.bin").readBytes()
     ),
     PeriodData(
         periodId = "summer",
-        stopsInputStream = assets.open("stops_summer.bin"),
-        routesInputStream = assets.open("routes_summer.bin")
+        stopsBytes = assets.open("stops_summer.bin").readBytes(),
+        routesBytes = assets.open("routes_summer.bin").readBytes()
     )
 ))
 
@@ -132,45 +132,49 @@ raptor.searchAndDisplayRoute(
 
 ## Performance
 
-Results after JVM warmup.( Config : Intel Core i7 11700, 32 Go RAM DDR4 2122 Mhz, Windows 11 )
+Measured with JMH (2 separate JVM forks, 5 warmup + 10 measurement iterations of 1 s each) on an
+Intel Core i7-11700F, 32 GB DDR4 2666 MHz, Windows 11, JDK 17. Times are average per query.
+Origins and destinations are resolved by stop name (multi-stop sets); forward departs at 08:00,
+arrive-by targets 09:00 with the default 120 min search window.
 
-### TCL Lyon — 14 386 stops, 331 routes, 19 523 trips (~14 MB)
-
-| Route | Forward | Arrive-By |
-|:------|--------:|----------:|
-| Perrache → Vaulx-en-Velin La Soie | 0.36 ms | 1.48 ms |
-| Bellecour → Part-Dieu | 0.20 ms | 0.90 ms |
-| Gare de Vaise → Oullins Centre | 0.28 ms | 1.60 ms |
-| Perrache → Cuire | 0.33 ms | 2.34 ms |
-| Laurent Bonnevay → Gorge de Loup | 0.28 ms | 2.10 ms |
-| Part-Dieu → Bellecour | 0.18 ms | 0.97 ms |
-
-100 iterations (forward), 10 iterations (arrive-by).
-
-### RTM Marseille — 2 754 stops, 243 routes, 43 590 trips (~10 MB)
+### TCL Lyon (v1.7.0) — 14 334 stops, 1 522 route variants, 35 290 trips (3.6 MB)
 
 | Route | Forward | Arrive-By |
 |:------|--------:|----------:|
-| Vieux-Port → La Rose | 0.13 ms | 0.54 ms |
-| Castellane → Bougainville | 0.18 ms | 0.58 ms |
-| Gare St Charles → Rond-Point du Prado | 0.37 ms | 2.39 ms |
-| La Timone → Joliette | 0.21 ms | 1.03 ms |
-| La Rose → Castellane | 0.11 ms | 0.64 ms |
-| Noailles → Sainte-Marguerite Dromel | 0.03 ms | 0.18 ms |
-| Bougainville → La Fourragère | 0.30 ms | 1.64 ms |
+| Perrache → Vaulx-en-Velin La Soie | 0.19 ms | 0.36 ms |
+| Bellecour → Part-Dieu | 0.18 ms | 0.28 ms |
+| Gare de Vaise → Oullins Centre | 0.38 ms | 0.69 ms |
+| Perrache → Cuire | 0.38 ms | 0.56 ms |
+| Laurent Bonnevay → Gorge de Loup | 0.37 ms | 0.75 ms |
+| Part-Dieu → Bellecour | 0.17 ms | 0.19 ms |
 
-100 iterations (forward), 10 iterations (arrive-by).
+Aggregate over 1 000 random O-D pairs (JMH, same config): forward **0.35 ms**, arrive-by **0.40 ms**
+per query — arrive-by now costs barely more than a forward search thanks to the single backward
+RAPTOR pass introduced in v1.7.0.
 
-### IDFM Paris — 53 944 stops, 3 744 routes, 377 225 trips (~142 MB)
+### RTM Marseille (v1.7.0) — 2 752 stops, 182 route variants, 10 596 trips (1.1 MB)
 
 | Route | Forward | Arrive-By |
 |:------|--------:|----------:|
-| Gare de Lyon → Gare du Nord | 2.38 ms | 19.89 ms |
-| Gare Saint-Lazare → Montparnasse Bienvenue | 3.01 ms | 20.35 ms |
-| Charles de Gaulle - Étoile → Nation | 1.17 ms | 8.33 ms |
-| République → Bastille | 0.86 ms | 4.22 ms |
-| Gare du Nord → Gare Montparnasse | 6.35 ms | 42.98 ms |
-| Bastille → Gare Saint-Lazare | 2.95 ms | 29.73 ms |
-| Glacière → Bonne Nouvelle | 7.19 ms | 51.55 ms |
+| Vieux-Port → La Rose | 0.12 ms | 0.25 ms |
+| Castellane → Bougainville | 0.08 ms | 0.11 ms |
+| La Timone → Joliette | 0.10 ms | 0.19 ms |
+| La Rose → Castellane | 0.10 ms | 0.22 ms |
+| Noailles → Sainte-Marguerite Dromel | 0.06 ms | 0.13 ms |
+| Bougainville → La Fourragère | 0.15 ms | 0.25 ms |
 
-50 iterations (forward), 5 iterations (arrive-by).
+### IDFM Paris (v1.7.0) — 54 115 stops, 2 128 route variants, 93 127 trips (12.6 MB)
+
+| Route | Forward | Arrive-By |
+|:------|--------:|----------:|
+| Gare de Lyon → Gare du Nord | 1.54 ms | 2.76 ms |
+| Gare Saint-Lazare → Montparnasse Bienvenue | 2.08 ms | 4.63 ms |
+| Charles de Gaulle - Étoile → Nation | 0.71 ms | 0.87 ms |
+| République → Bastille | 0.89 ms | 0.92 ms |
+| Gare du Nord → Gare Montparnasse | 5.71 ms | 8.09 ms |
+| Bastille → Gare Saint-Lazare | 2.07 ms | 3.55 ms |
+| Glacière → Bonne Nouvelle | 6.16 ms | 7.22 ms |
+
+Since v1.7.0, arrive-by runs a single backward RAPTOR pass instead of a departure-time binary
+search: on these Paris queries it is **4–10× faster** than v1.1.0, and costs barely more than a
+forward search (~1.5× on average, versus ~7× before).

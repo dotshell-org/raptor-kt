@@ -4,6 +4,7 @@ import io.raptor.model.Network
 
 class RaptorAlgorithm(private val network: Network, private val debug: Boolean = false) {
     private var lastState: RaptorState? = null
+    private var lastBackwardState: BackwardRaptorState? = null
 
     // Reusable buffers for route collection (avoid allocations per round)
     private val routeSeenBuffer = BooleanArray(network.routeCount)
@@ -18,8 +19,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         destinationIndices: List<Int>,
         departureTime: Int,
         routeFilter: RouteFilter? = null,
-        maxRounds: Int = 5,
-        trackParents: Boolean = true
+        maxRounds: Int = 5
     ): Int {
         val existing = lastState
         val state = if (existing != null && existing.maxRounds >= maxRounds) {
@@ -28,9 +28,6 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             RaptorState(network, maxRounds = maxRounds)
         }
         lastState = state
-        // Parent tracking is gated on the state (not threaded through the hot explore* methods, so their
-        // JIT compilation is unchanged): arrive-by binary-search probes disable it to skip setParent writes.
-        state.trackParents = trackParents
 
         if (debug) {
             println("Route search: ${network.stops[originIndices[0]].name} -> ${network.stops[destinationIndices[0]].name}")
@@ -229,6 +226,267 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             }
         }
         return result
+    }
+
+    /**
+     * Backward RAPTOR: computes the LATEST departure time from any origin that still reaches one
+     * of the destinations by [arrivalTime], never departing before [earliestDeparture] (search
+     * window floor). Exact mirror of [route]: routes are scanned in reverse stop order, labels are
+     * relaxed by max (sentinel Int.MIN_VALUE = unreachable), and trips are caught by the latest one
+     * arriving at or before the label. No parent tracking — callers reconstruct journeys with a
+     * forward [route] run at the returned departure time.
+     *
+     * Kept as a fully separate code path (not a direction flag on route()): threading a parameter
+     * through the forward hot loop measurably regressed its JIT compilation.
+     *
+     * @return the latest feasible departure time, or Int.MIN_VALUE if no journey exists.
+     */
+    fun routeBackward(
+        originIndices: List<Int>,
+        destinationIndices: List<Int>,
+        arrivalTime: Int,
+        earliestDeparture: Int,
+        routeFilter: RouteFilter? = null,
+        maxRounds: Int = 5
+    ): Int {
+        val existing = lastBackwardState
+        val state = if (existing != null && existing.maxRounds >= maxRounds) {
+            existing.also { it.reset() }
+        } else {
+            BackwardRaptorState(network, maxRounds)
+        }
+        lastBackwardState = state
+
+        // Mark origins (the targets of the backward search) for O(1) pruning checks.
+        // Reuses the same scratch buffer as route()'s destinations — calls are sequential.
+        val origBuf = destinationBuffer
+        for (idx in originIndices) {
+            origBuf[idx] = true
+        }
+
+        val filterBuf: BooleanArray? = if (routeFilter != null) {
+            val buf = routeFilterBuffer
+            for (i in 0 until network.routeCount) {
+                buf[i] = routeFilter.allows(network.routeList[i])
+            }
+            buf
+        } else null
+
+        var bestDepartureAtOrigin = Int.MIN_VALUE
+
+        // Round 0: we can be at a destination at arrivalTime itself
+        val ld = state.latestDeparture
+        for (idx in destinationIndices) {
+            ld[idx] = arrivalTime
+            state.markStop(idx)
+        }
+        // Trailing-walk mirror: forward journeys may END with a single transfer into a destination
+        // (exploreTransfers runs after each ride round). Seed round-0 labels at walk-adjacent stops
+        // so the round-1 backward ride can alight there. Such a walk is always adjacent to the
+        // journey's LAST ride, which is backward round 1, so seeding round 0 covers every case.
+        for (idx in destinationIndices) {
+            val transfers = network.reverseTransferData[idx]
+            var t = 0
+            while (t < transfers.size) {
+                val sourceStopIndex = transfers[t]
+                val walkTime = transfers[t + 1]
+                t += 2
+                if (sourceStopIndex == idx) continue
+                val dep = arrivalTime - walkTime
+                if (dep < earliestDeparture) continue
+                if (dep > ld[sourceStopIndex]) {
+                    ld[sourceStopIndex] = dep
+                    state.markStop(sourceStopIndex)
+                }
+            }
+            for (sourceStopIndex in network.implicitTransferData[idx]) {
+                val dep = arrivalTime - 120
+                if (dep < earliestDeparture) continue
+                if (dep > ld[sourceStopIndex]) {
+                    ld[sourceStopIndex] = dep
+                    state.markStop(sourceStopIndex)
+                }
+            }
+        }
+
+        for (k in 1..state.maxRounds) {
+            state.clearMarks()
+            state.copyToNextRound(k)
+
+            // Forward journeys always START with a ride (transfers are only relaxed after riding),
+            // so only RIDE-written origin labels are valid journey endpoints for the mirror:
+            // exploreRoutesBackward returns the best origin departure it reached, and
+            // walk-written origin labels (exploreTransfersBackward) never feed D*.
+            bestDepartureAtOrigin = exploreRoutesBackward(
+                state, k, origBuf, bestDepartureAtOrigin, earliestDeparture, filterBuf
+            )
+            exploreTransfersBackward(state, k, bestDepartureAtOrigin, earliestDeparture)
+
+            if (state.getMarkedCount() == 0) {
+                break
+            }
+        }
+
+        for (idx in originIndices) {
+            origBuf[idx] = false
+        }
+
+        return bestDepartureAtOrigin
+    }
+
+    /** @return the best (latest) RIDE-written origin departure seen so far, for D* and pruning. */
+    private fun exploreRoutesBackward(
+        state: BackwardRaptorState,
+        round: Int,
+        originBuf: BooleanArray,
+        bestDepartureAtOrigin: Int,
+        earliestDeparture: Int,
+        filterMask: BooleanArray?
+    ): Int {
+        var currentBestAtOrigin = bestDepartureAtOrigin
+        val markedPrevArr = state.getMarkedPrevArray()
+        val markedPrevSize = state.getMarkedPrevSize()
+        val routeCount = network.collectRouteIndices(markedPrevArr, markedPrevSize, routeSeenBuffer, routeResultBuffer)
+
+        val ld = state.latestDeparture
+        val sc = state.stopCount
+        val roundOff = round * sc
+        val prevRoundOff = (round - 1) * sc
+
+        for (ri in 0 until routeCount) {
+            val routeIdx = routeResultBuffer[ri]
+            if (filterMask != null && !filterMask[routeIdx]) continue
+            val route = network.routeList[routeIdx]
+
+            val flat = route.flatStopTimes
+            val stride = route.stopCountInRoute
+            val overnight = route.hasOvernightTrips
+            var currentTripIndex = -1
+            var tripOffset = 0  // currentTripIndex * stride, cached
+            var alightIndex = -1  // position where we leave the current trip (mirror of boardingIndex)
+
+            val stopIndicesArray = network.routeStopIndices[routeIdx]
+
+            // Scan positions in REVERSE: upstream stops come after the alighting stop
+            for (i in stopIndicesArray.size - 1 downTo 0) {
+                val stopIndex = stopIndicesArray[i]
+                if (stopIndex == -1) continue
+
+                // 1. If we are on a trip (alighting later at alightIndex), we can depart from this
+                //    earlier stop at the trip's time here.
+                if (currentTripIndex != -1) {
+                    val departureTime = flat[tripOffset + i]
+
+                    // Overnight wrap protection: times must decrease scanning backward
+                    if (overnight && departureTime > flat[tripOffset + alightIndex]) continue
+
+                    // Target + window pruning
+                    if (departureTime > currentBestAtOrigin && departureTime >= earliestDeparture) {
+                        if (departureTime > ld[roundOff + stopIndex]) {
+                            ld[roundOff + stopIndex] = departureTime
+                            state.markStop(stopIndex)
+                        }
+                        // A ride reaching an origin is a complete journey endpoint: it must feed D*
+                        // even when the cell already holds a LATER walk-written label (walk-first
+                        // journeys are not valid endpoints, but their labels can mask this cell).
+                        if (originBuf[stopIndex]) {
+                            currentBestAtOrigin = departureTime
+                        }
+                    }
+                }
+
+                // 2. Can we improve the current trip by alighting at this stop?
+                if (state.isMarkedInPreviousRound(stopIndex)) {
+                    val latestAtStop = ld[prevRoundOff + stopIndex]
+                    // Quick-reject: if the current trip already arrives here no earlier than
+                    // latestAtStop, no LATER trip is catchable (FIFO: later trips arrive even later)
+                    if (currentTripIndex != -1 && latestAtStop <= flat[tripOffset + i]) continue
+
+                    // Bounded search: only trips (currentTripIndex, tripCount) can improve
+                    val searchFrom = if (currentTripIndex == -1) 0 else currentTripIndex + 1
+                    val latestTripIdx = findLatestTripIndex(flat, searchFrom, route.tripCount, stride, i, latestAtStop)
+
+                    if (latestTripIdx != -1) {
+                        currentTripIndex = latestTripIdx
+                        tripOffset = latestTripIdx * stride
+                        alightIndex = i
+                    }
+                }
+            }
+        }
+        return currentBestAtOrigin
+    }
+
+    /**
+     * Binary search for the latest trip arriving at or before latestTime at the given stop,
+     * within trip indices [searchFrom, tripCount). Mirror of [findEarliestTripIndex]; relies on
+     * the same FIFO column ordering. Returns the trip index, or -1 if no trip qualifies.
+     */
+    private fun findLatestTripIndex(
+        flatStopTimes: IntArray, searchFrom: Int, tripCount: Int, stride: Int,
+        stopIndexInRoute: Int, latestTime: Int
+    ): Int {
+        var low = searchFrom
+        var high = tripCount - 1
+        var result = -1
+
+        while (low <= high) {
+            val mid = (low + high) ushr 1
+            if (flatStopTimes[mid * stride + stopIndexInRoute] <= latestTime) {
+                result = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+        return result
+    }
+
+    private fun exploreTransfersBackward(
+        state: BackwardRaptorState,
+        round: Int,
+        bestAtOrigin: Int,
+        earliestDeparture: Int
+    ) {
+        // Capture count before iteration — markStop() only appends (mirror of exploreTransfers)
+        val markedCount = state.getMarkedCount()
+        val ld = state.latestDeparture
+        val roundOff = round * state.stopCount
+
+        for (mi in 0 until markedCount) {
+            val stopIndex = state.getMarkedAt(mi)
+            val departureTime = ld[roundOff + stopIndex]
+
+            // Explicit INCOMING transfers: to walk source -> stopIndex and leave stopIndex at
+            // departureTime, we must leave the source by departureTime - walkTime.
+            val transfers = network.reverseTransferData[stopIndex]
+            var t = 0
+            while (t < transfers.size) {
+                val sourceStopIndex = transfers[t]
+                val walkTime = transfers[t + 1]
+                t += 2
+                if (sourceStopIndex == stopIndex) continue
+                val departureAtSource = departureTime - walkTime
+                if (departureAtSource <= bestAtOrigin || departureAtSource < earliestDeparture) continue
+
+                if (departureAtSource > ld[roundOff + sourceStopIndex]) {
+                    ld[roundOff + sourceStopIndex] = departureAtSource
+                    state.markStop(sourceStopIndex)
+                }
+            }
+
+            // Implicit transfers: same-name stops, symmetric adjacency, 120s default transfer time
+            val implicitSources = network.implicitTransferData[stopIndex]
+            for (otherStopIndex in implicitSources) {
+                val departureAtSource = departureTime - 120
+                if (departureAtSource <= bestAtOrigin || departureAtSource < earliestDeparture) continue
+
+                if (departureAtSource > ld[roundOff + otherStopIndex]) {
+                    ld[roundOff + otherStopIndex] = departureAtSource
+                    state.markStop(otherStopIndex)
+                }
+            }
+        }
     }
 
     private fun exploreTransfers(state: RaptorState, round: Int, bestAtDest: Int) {

@@ -13,16 +13,16 @@ enum class DatasetConfig(
     val description: String
 ) {
     PARIS(
-        "raptor_data_paris", "stops.bin", "routes.bin",
-        "Paris IDFM"
+        "raptor_data_idfm", "stops_weekday.bin", "routes_weekday.bin",
+        "Paris IDFM weekday"
     ),
     FINLAND(
         "raptor_data_finlande", "stops.bin", "routes.bin",
         "Finland national"
     ),
     RTM(
-        "raptor_data_rtm", "stops.bin", "routes.bin",
-        "Marseille RTM"
+        "raptor_data_rtm", "stops_weekday.bin", "routes_weekday.bin",
+        "Marseille RTM weekday"
     ),
     LYON(
         "raptor_data", "stops_school_on_weekdays.bin", "routes_school_on_weekdays.bin",

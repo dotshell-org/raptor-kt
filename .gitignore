@@ -16,3 +16,5 @@ java_pid*
 raptor_data_finlande/
 raptor_data_paris/
 raptor_data_rtm/
+raptor_data_idfm/
+.kotlin/

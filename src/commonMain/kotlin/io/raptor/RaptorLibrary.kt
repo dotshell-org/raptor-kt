@@ -145,9 +145,10 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
     /**
      * Searches for optimized paths that arrive before a specified time.
-     * Uses binary search to find the latest possible departure that arrives on time.
+     * A single backward RAPTOR pass finds the exact latest departure that still arrives on time,
+     * then one forward run at that departure reconstructs the journeys.
      * Returns a list of journeys (Pareto-optimal with respect to the number of transfers).
-     * 
+     *
      * @param originStopIds List of origin stop identifiers
      * @param destinationStopIds List of destination stop identifiers
      * @param arrivalTime Desired arrival time in seconds from midnight
@@ -178,27 +179,15 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
-        // Binary search to find the latest departure that arrives on time.
-        // Probes only need arrival times, not journeys, so skip parent tracking (trackParents = false).
-        var low = earliestDeparture
-        var high = arrivalTime
-        var bestMid = -1
+        // Single backward pass: exact latest departure that still arrives by arrivalTime
+        // (replaces the historical binary search over departure times — ~7 forward runs).
+        val bestDeparture = algorithm.routeBackward(
+            originIndices, destinationIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds
+        )
 
-        while (low <= high) {
-            val mid = (low + high) / 2
-            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds, trackParents = false)
-
-            if (bestArrival <= arrivalTime) {
-                bestMid = mid
-                low = mid + 60
-            } else {
-                high = mid - 60
-            }
-        }
-
-        if (bestMid == -1) return emptyList()
-        // Final tracked run at the best departure so journeys can be reconstructed.
-        algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
+        if (bestDeparture == Int.MIN_VALUE) return emptyList()
+        // One tracked forward run at the optimal departure so journeys can be reconstructed.
+        algorithm.route(originIndices, destinationIndices, bestDeparture, routeFilter, maxRounds)
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
     }
 

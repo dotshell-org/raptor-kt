@@ -58,6 +58,40 @@ class Network(
         arr
     }
 
+    // Reverse adjacency of transferData: reverseTransferData[stopIndex] = [sourceIdx0, walkTime0, ...]
+    // lists every explicit transfer arriving AT this stop. GTFS transfers can be asymmetric, so the
+    // backward (arrive-by) search needs incoming arcs; built as an exact transpose in two passes.
+    val reverseTransferData: Array<IntArray> = run {
+        val counts = IntArray(stops.size)
+        for (si in stops.indices) {
+            val arr = transferData[si]
+            var t = 0
+            while (t < arr.size) {
+                val target = arr[t]
+                if (target != -1) counts[target] += 2
+                t += 2
+            }
+        }
+        val result = Array(stops.size) { IntArray(counts[it]) }
+        val fill = IntArray(stops.size)
+        for (si in stops.indices) {
+            val arr = transferData[si]
+            var t = 0
+            while (t < arr.size) {
+                val target = arr[t]
+                val walk = arr[t + 1]
+                t += 2
+                if (target == -1) continue
+                val out = result[target]
+                val pos = fill[target]
+                out[pos] = si
+                out[pos + 1] = walk
+                fill[target] = pos + 2
+            }
+        }
+        result
+    }
+
     // Pre-computed: routeIndicesForStop[stopIndex] = array of internal route indices
     // Filtered: only includes routes where the stop actually appears in routeStopIndices
     val routeIndicesForStop: Array<IntArray> = Array(stops.size) { si ->

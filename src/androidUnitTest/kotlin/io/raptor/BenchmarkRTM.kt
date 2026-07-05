@@ -23,7 +23,7 @@ object BenchmarkRTM {
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark — Marseille (RTM) ===")
+        println("=== RAPTOR-KMP Performance Benchmark — Marseille (RTM) ===")
         println("Data: $baseDir")
         println()
 

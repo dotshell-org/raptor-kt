@@ -50,10 +50,6 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     private var markedArrayPrev = IntArray(256)
     private var markedSizePrev = 0
 
-    // When false, setParent is a no-op (arrive-by binary-search probes only need arrival times, not
-    // reconstructable journeys). Set per query by RaptorAlgorithm.route().
-    var trackParents: Boolean = true
-
     // Track max round used for lazy reset of parentData
     private var lastMaxRound = maxRounds // first reset fills everything
     // Track max round written in bestArrival (separate from parentData because
@@ -156,7 +152,6 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         pStopIndex: Int, pRound: Int, routeIdx: Int,
         depTime: Int, tripIdx: Int, boardingPos: Int, alightingPos: Int
     ) {
-        if (!trackParents) return
         if (round > lastMaxRound) lastMaxRound = round
         val base = (round * stopCount + stopIndex) * PARENT_STRIDE
         parentData[base + P_STOP] = pStopIndex
@@ -238,5 +233,87 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         }
 
         return legs.reversed()
+    }
+}
+
+/**
+ * Lean state for the backward (arrive-by) search: latest-departure labels and per-round marks.
+ *
+ * Mirror of RaptorState with max/Int.MIN_VALUE semantics and NO parent tracking — the backward
+ * pass only needs the optimal departure time; journeys are then reconstructed by a forward run.
+ *
+ * Deliberately a separate class rather than a parametrized RaptorState: sharing one label array
+ * between min- and max-relaxation queries would let stale sentinels of the other polarity leak
+ * into lazily-reset regions (MAX_VALUE is neutral for min but poison for max, and vice versa),
+ * and keeping RaptorState untouched leaves the forward hot path byte-identical.
+ */
+class BackwardRaptorState(network: Network, val maxRounds: Int) {
+    val stopCount: Int = network.stopCount
+
+    // Flat labels: latestDeparture[round * stopCount + stopIndex]
+    // Int.MIN_VALUE represents "cannot reach a destination in time from here"
+    val latestDeparture: IntArray = IntArray((maxRounds + 1) * stopCount).also { it.fill(Int.MIN_VALUE) }
+
+    private var markedStops = BooleanArray(stopCount)
+    private var markedStopsPrevious = BooleanArray(stopCount)
+    private var markedArray = IntArray(256)
+    private var markedSize = 0
+    private var markedArrayPrev = IntArray(256)
+    private var markedSizePrev = 0
+
+    // Highest round written, for lazy label reset (same mechanism as RaptorState.lastBaRound)
+    private var lastRound = maxRounds // first reset clears everything
+
+    fun reset() {
+        latestDeparture.fill(Int.MIN_VALUE, 0, (lastRound + 1) * stopCount)
+        lastRound = 0
+        // Set bits are exactly the entries listed in the mark arrays: clear incrementally
+        for (i in 0 until markedSize) markedStops[markedArray[i]] = false
+        for (i in 0 until markedSizePrev) markedStopsPrevious[markedArrayPrev[i]] = false
+        markedSize = 0
+        markedSizePrev = 0
+    }
+
+    fun markStop(stopIndex: Int) {
+        if (!markedStops[stopIndex]) {
+            markedStops[stopIndex] = true
+            if (markedSize == markedArray.size) {
+                markedArray = markedArray.copyOf(markedArray.size * 2)
+            }
+            markedArray[markedSize++] = stopIndex
+        }
+    }
+
+    fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
+
+    fun clearMarks() {
+        // O(marked) move of current marks to previous, mirroring RaptorState.clearMarks
+        for (i in 0 until markedSizePrev) {
+            markedStopsPrevious[markedArrayPrev[i]] = false
+        }
+        val tmpBool = markedStopsPrevious; markedStopsPrevious = markedStops; markedStops = tmpBool
+        val tmpArr = markedArrayPrev; markedArrayPrev = markedArray; markedArray = tmpArr
+        markedSizePrev = markedSize
+        markedSize = 0
+    }
+
+    fun getMarkedCount(): Int = markedSize
+    fun getMarkedAt(i: Int): Int = markedArray[i]
+    fun getMarkedPrevArray(): IntArray = markedArrayPrev
+    fun getMarkedPrevSize(): Int = markedSizePrev
+
+    /**
+     * Propagates labels from round k-1 to round k (round k starts as a copy of k-1,
+     * so labels are monotone non-decreasing across rounds).
+     */
+    fun copyToNextRound(round: Int) {
+        if (round !in 1..maxRounds) return
+        latestDeparture.copyInto(
+            destination = latestDeparture,
+            destinationOffset = round * stopCount,
+            startIndex = (round - 1) * stopCount,
+            endIndex = round * stopCount
+        )
+        if (round > lastRound) lastRound = round
     }
 }
