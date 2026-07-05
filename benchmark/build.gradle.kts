@@ -59,3 +59,28 @@ tasks.register<JavaExec>("generateReport") {
     )
     workingDir = rootProject.projectDir
 }
+
+// On-demand benchmarks excluded from the default `jmh` task (they would blow its time budget).
+// Wrapping the JMH jar in gradle tasks avoids shell-specific quoting issues with `java -jar`
+// (bash line continuations and -D properties don't survive PowerShell verbatim).
+fun registerJmhRun(taskName: String, pattern: String, heap: String, extraArgs: List<String> = emptyList()) =
+    tasks.register<JavaExec>(taskName) {
+        group = "benchmark"
+        description = "Run $pattern through the JMH jar (results: build/reports/jmh/$taskName.json)"
+        dependsOn(tasks.named("jmhJar"))
+        classpath = files(layout.buildDirectory.file("libs/benchmark-jmh.jar"))
+        mainClass.set("org.openjdk.jmh.Main")
+        maxHeapSize = heap
+        // Forked benchmark JVMs inherit the parent's input arguments (-D and -Xmx included)
+        systemProperty("raptor.dataRoot", rootProject.projectDir.absolutePath)
+        args = listOf(pattern) + extraArgs + listOf(
+            "-rf", "json",
+            "-rff", layout.buildDirectory.file("reports/jmh/$taskName.json").get().asFile.absolutePath
+        )
+    }
+
+registerJmhRun("jmhNamedLyon", "io.raptor.benchmark.NamedRoutesBenchmark.*", "1g")
+registerJmhRun("jmhNamedRtm", "io.raptor.benchmark.NamedRoutesRtmBenchmark.*", "1g")
+registerJmhRun("jmhNamedParis", "io.raptor.benchmark.NamedRoutesParisBenchmark.*", "3g")
+// 1000-random-query aggregate on the Paris network (dataset param overridden via JMH CLI)
+registerJmhRun("jmhAggregateParis", "io.raptor.benchmark.RaptorBenchmark.*", "3g", listOf("-p", "dataset=PARIS"))
