@@ -40,15 +40,19 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         const val PARENT_STRIDE = 7
     }
 
-    // Boolean arrays for O(1) mark checks
-    private val markedStops = BooleanArray(network.stopCount)
-    private val markedStopsPrevious = BooleanArray(network.stopCount)
+    // Boolean arrays for O(1) mark checks (var: swapped in clearMarks to avoid O(stopCount) copies)
+    private var markedStops = BooleanArray(network.stopCount)
+    private var markedStopsPrevious = BooleanArray(network.stopCount)
 
     // Incremental tracking of marked stop indices (IntArray-backed, no boxing)
     private var markedArray = IntArray(256)
     private var markedSize = 0
     private var markedArrayPrev = IntArray(256)
     private var markedSizePrev = 0
+
+    // When false, setParent is a no-op (arrive-by binary-search probes only need arrival times, not
+    // reconstructable journeys). Set per query by RaptorAlgorithm.route().
+    var trackParents: Boolean = true
 
     // Track max round used for lazy reset of parentData
     private var lastMaxRound = maxRounds // first reset fills everything
@@ -84,10 +88,16 @@ class RaptorState(val network: Network, val maxRounds: Int) {
     fun isMarkedInPreviousRound(stopIndex: Int): Boolean = markedStopsPrevious[stopIndex]
 
     fun clearMarks() {
-        markedStops.copyInto(markedStopsPrevious, 0, 0, markedStops.size)
-        markedStops.fill(false)
+        // Move current marks to previous and empty current, in O(marked) instead of 2×O(stopCount).
+        // markedStopsPrevious still holds last round's marks: clear only its set entries (listed in
+        // markedArrayPrev), then swap so it becomes the fresh empty "current" and the old "current"
+        // boolean array becomes "previous".
+        for (i in 0 until markedSizePrev) {
+            markedStopsPrevious[markedArrayPrev[i]] = false
+        }
+        val tmpBool = markedStopsPrevious; markedStopsPrevious = markedStops; markedStops = tmpBool
 
-        // Swap arrays
+        // Swap the index arrays in the same way
         val tmpArr = markedArrayPrev; markedArrayPrev = markedArray; markedArray = tmpArr
         markedSizePrev = markedSize
         markedSize = 0
@@ -146,6 +156,7 @@ class RaptorState(val network: Network, val maxRounds: Int) {
         pStopIndex: Int, pRound: Int, routeIdx: Int,
         depTime: Int, tripIdx: Int, boardingPos: Int, alightingPos: Int
     ) {
+        if (!trackParents) return
         if (round > lastMaxRound) lastMaxRound = round
         val base = (round * stopCount + stopIndex) * PARENT_STRIDE
         parentData[base + P_STOP] = pStopIndex

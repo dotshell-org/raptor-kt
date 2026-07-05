@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
 @Measurement(iterations = 500)
 open class MemoryBenchmark {
 
-    @Param("PARIS", "RTM")
+    @Param("LYON")
     lateinit var dataset: String
 
     private lateinit var library: RaptorLibrary

@@ -133,7 +133,7 @@ object ReportGenerator {
     private fun renderRoutingSection(sb: StringBuilder, results: List<BenchmarkResult>) {
         sb.appendLine("## Routing Performance")
         sb.appendLine()
-        sb.appendLine("1000 random seeded query pairs per dataset. JMH: 3 forks, 10 warmup, 20 measurement iterations.")
+        sb.appendLine("1000 random seeded query pairs per dataset. See the JMH Configuration table below for fork/iteration counts.")
         sb.appendLine()
 
         val forward = results.filter { it.method == "forwardRouting" }.sortedBy { it.score }

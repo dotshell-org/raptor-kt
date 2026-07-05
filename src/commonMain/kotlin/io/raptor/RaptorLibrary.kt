@@ -104,8 +104,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
-        val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
-        val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+        val originIndices = network.mapStopIdsToIndices(originStopIds)
+        val destinationIndices = network.mapStopIdsToIndices(destinationStopIds)
 
         if (originIndices.isEmpty() || destinationIndices.isEmpty()) {
             return emptyList()
@@ -166,8 +166,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         blockedRouteNames: Set<String> = emptySet()
     ): List<List<JourneyLeg>> {
         val network = getCurrentNetwork()
-        val originIndices = originStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
-        val destinationIndices = destinationStopIds.map { network.getStopIndex(it) }.filter { it != -1 }
+        val originIndices = network.mapStopIdsToIndices(originStopIds)
+        val destinationIndices = network.mapStopIdsToIndices(destinationStopIds)
 
         if (originIndices.isEmpty() || destinationIndices.isEmpty()) {
             return emptyList()
@@ -178,30 +178,27 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
-        // Binary search to find the latest departure that arrives on time
+        // Binary search to find the latest departure that arrives on time.
+        // Probes only need arrival times, not journeys, so skip parent tracking (trackParents = false).
         var low = earliestDeparture
         var high = arrivalTime
         var bestMid = -1
-        var lastWasSuccess = false
 
         while (low <= high) {
             val mid = (low + high) / 2
-            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds)
+            val bestArrival = algorithm.route(originIndices, destinationIndices, mid, routeFilter, maxRounds, trackParents = false)
 
             if (bestArrival <= arrivalTime) {
                 bestMid = mid
-                lastWasSuccess = true
                 low = mid + 60
             } else {
-                lastWasSuccess = false
                 high = mid - 60
             }
         }
 
         if (bestMid == -1) return emptyList()
-        if (!lastWasSuccess) {
-            algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
-        }
+        // Final tracked run at the best departure so journeys can be reconstructed.
+        algorithm.route(originIndices, destinationIndices, bestMid, routeFilter, maxRounds)
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
     }
 
@@ -235,6 +232,19 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         }
 
         return paretoJourneys
+    }
+
+    /**
+     * Maps stop IDs to internal indices in a single pass (drops unknown ids), allocating one list
+     * instead of the two produced by map { }.filter { } plus its lambdas.
+     */
+    private fun Network.mapStopIdsToIndices(ids: List<Int>): List<Int> {
+        val out = ArrayList<Int>(ids.size)
+        for (i in ids.indices) {
+            val ix = getStopIndex(ids[i])
+            if (ix != -1) out.add(ix)
+        }
+        return out
     }
 
     private fun buildRouteFilter(
