@@ -24,7 +24,10 @@ class RegressionTest {
     companion object {
         // Baseline hashes (LYON) locked from the first run — any optimization must reproduce them exactly.
         private val EXPECTED_FORWARD: String? = "30337ac4be89420b"
-        private val EXPECTED_ARRIVE_BY: String? = "f924a128d7f02d33"
+        // Re-locked after the backward-RAPTOR arrive-by rewrite: results legitimately changed
+        // (exact latest departure instead of a 60s bisection grid). Validated by
+        // ArriveByDominanceTest: never worse than the historical bisection on any query.
+        private val EXPECTED_ARRIVE_BY: String? = "e4cb9e7df2820bbb"
 
         private const val FORWARD_QUERIES = 500
         private const val ARRIVE_BY_QUERIES = 200

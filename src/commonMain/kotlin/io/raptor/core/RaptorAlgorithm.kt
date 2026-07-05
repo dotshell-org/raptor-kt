@@ -279,15 +279,37 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         var bestDepartureAtOrigin = Int.MIN_VALUE
 
         // Round 0: we can be at a destination at arrivalTime itself
-        val sc = state.stopCount
+        val ld = state.latestDeparture
         for (idx in destinationIndices) {
-            state.latestDeparture[idx] = arrivalTime
+            ld[idx] = arrivalTime
             state.markStop(idx)
         }
-        // Degenerate origin==destination case: already there
-        for (idx in originIndices) {
-            if (state.latestDeparture[idx] > bestDepartureAtOrigin) {
-                bestDepartureAtOrigin = state.latestDeparture[idx]
+        // Trailing-walk mirror: forward journeys may END with a single transfer into a destination
+        // (exploreTransfers runs after each ride round). Seed round-0 labels at walk-adjacent stops
+        // so the round-1 backward ride can alight there. Such a walk is always adjacent to the
+        // journey's LAST ride, which is backward round 1, so seeding round 0 covers every case.
+        for (idx in destinationIndices) {
+            val transfers = network.reverseTransferData[idx]
+            var t = 0
+            while (t < transfers.size) {
+                val sourceStopIndex = transfers[t]
+                val walkTime = transfers[t + 1]
+                t += 2
+                if (sourceStopIndex == idx) continue
+                val dep = arrivalTime - walkTime
+                if (dep < earliestDeparture) continue
+                if (dep > ld[sourceStopIndex]) {
+                    ld[sourceStopIndex] = dep
+                    state.markStop(sourceStopIndex)
+                }
+            }
+            for (sourceStopIndex in network.implicitTransferData[idx]) {
+                val dep = arrivalTime - 120
+                if (dep < earliestDeparture) continue
+                if (dep > ld[sourceStopIndex]) {
+                    ld[sourceStopIndex] = dep
+                    state.markStop(sourceStopIndex)
+                }
             }
         }
 
@@ -295,15 +317,14 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             state.clearMarks()
             state.copyToNextRound(k)
 
-            exploreRoutesBackward(state, k, origBuf, bestDepartureAtOrigin, earliestDeparture, filterBuf)
+            // Forward journeys always START with a ride (transfers are only relaxed after riding),
+            // so only RIDE-written origin labels are valid journey endpoints for the mirror:
+            // exploreRoutesBackward returns the best origin departure it reached, and
+            // walk-written origin labels (exploreTransfersBackward) never feed D*.
+            bestDepartureAtOrigin = exploreRoutesBackward(
+                state, k, origBuf, bestDepartureAtOrigin, earliestDeparture, filterBuf
+            )
             exploreTransfersBackward(state, k, bestDepartureAtOrigin, earliestDeparture)
-
-            val kOff = k * sc
-            for (originIdx in originIndices) {
-                if (state.latestDeparture[kOff + originIdx] > bestDepartureAtOrigin) {
-                    bestDepartureAtOrigin = state.latestDeparture[kOff + originIdx]
-                }
-            }
 
             if (state.getMarkedCount() == 0) {
                 break
@@ -317,6 +338,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         return bestDepartureAtOrigin
     }
 
+    /** @return the best (latest) RIDE-written origin departure seen so far, for D* and pruning. */
     private fun exploreRoutesBackward(
         state: BackwardRaptorState,
         round: Int,
@@ -324,7 +346,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         bestDepartureAtOrigin: Int,
         earliestDeparture: Int,
         filterMask: BooleanArray?
-    ) {
+    ): Int {
         var currentBestAtOrigin = bestDepartureAtOrigin
         val markedPrevArr = state.getMarkedPrevArray()
         val markedPrevSize = state.getMarkedPrevSize()
@@ -362,14 +384,15 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                     // Overnight wrap protection: times must decrease scanning backward
                     if (overnight && departureTime > flat[tripOffset + alightIndex]) continue
 
-                    // Target + window pruning: label must beat the best origin departure and stay in window
-                    if (departureTime > ld[roundOff + stopIndex] &&
-                        departureTime > currentBestAtOrigin &&
-                        departureTime >= earliestDeparture
-                    ) {
-                        ld[roundOff + stopIndex] = departureTime
-                        state.markStop(stopIndex)
-
+                    // Target + window pruning
+                    if (departureTime > currentBestAtOrigin && departureTime >= earliestDeparture) {
+                        if (departureTime > ld[roundOff + stopIndex]) {
+                            ld[roundOff + stopIndex] = departureTime
+                            state.markStop(stopIndex)
+                        }
+                        // A ride reaching an origin is a complete journey endpoint: it must feed D*
+                        // even when the cell already holds a LATER walk-written label (walk-first
+                        // journeys are not valid endpoints, but their labels can mask this cell).
                         if (originBuf[stopIndex]) {
                             currentBestAtOrigin = departureTime
                         }
@@ -395,6 +418,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 }
             }
         }
+        return currentBestAtOrigin
     }
 
     /**
