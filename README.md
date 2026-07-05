@@ -132,22 +132,31 @@ raptor.searchAndDisplayRoute(
 
 ## Performance
 
-Results after JVM warmup.( Config : Intel Core i7 11700, 32 Go RAM DDR4 2122 Mhz, Windows 11 )
+Measured with JMH (2 separate JVM forks, 5 warmup + 10 measurement iterations of 1 s each) on an
+Intel Core i7-11700F, 32 GB DDR4 2666 MHz, Windows 11, JDK 17. Times are average per query.
+Origins and destinations are resolved by stop name (multi-stop sets); forward departs at 08:00,
+arrive-by targets 09:00 with the default 120 min search window.
 
-### TCL Lyon — 14 386 stops, 331 routes, 19 523 trips (~14 MB)
+### TCL Lyon (v1.7.0) — 14 334 stops, 1 522 route variants, 35 290 trips (3.6 MB)
 
 | Route | Forward | Arrive-By |
 |:------|--------:|----------:|
-| Perrache → Vaulx-en-Velin La Soie | 0.36 ms | 1.48 ms |
-| Bellecour → Part-Dieu | 0.20 ms | 0.90 ms |
-| Gare de Vaise → Oullins Centre | 0.28 ms | 1.60 ms |
-| Perrache → Cuire | 0.33 ms | 2.34 ms |
-| Laurent Bonnevay → Gorge de Loup | 0.28 ms | 2.10 ms |
-| Part-Dieu → Bellecour | 0.18 ms | 0.97 ms |
+| Perrache → Vaulx-en-Velin La Soie | 0.19 ms | 0.36 ms |
+| Bellecour → Part-Dieu | 0.18 ms | 0.28 ms |
+| Gare de Vaise → Oullins Centre | 0.38 ms | 0.69 ms |
+| Perrache → Cuire | 0.38 ms | 0.56 ms |
+| Laurent Bonnevay → Gorge de Loup | 0.37 ms | 0.75 ms |
+| Part-Dieu → Bellecour | 0.17 ms | 0.19 ms |
 
-100 iterations (forward), 10 iterations (arrive-by).
+Aggregate over 1 000 random O-D pairs (JMH, same config): forward **0.35 ms**, arrive-by **0.40 ms**
+per query — arrive-by now costs barely more than a forward search thanks to the single backward
+RAPTOR pass introduced in v1.7.0.
 
 ### RTM Marseille — 2 754 stops, 243 routes, 43 590 trips (~10 MB)
+
+> **Historical numbers, measured with v1.1.0.** Since v1.7.0, arrive-by runs a single backward
+> RAPTOR pass instead of a departure-time binary search: on comparable queries it is **~4–5×
+> faster** than the arrive-by times below (forward is ~5–10 % faster).
 
 | Route | Forward | Arrive-By |
 |:------|--------:|----------:|
@@ -159,7 +168,7 @@ Results after JVM warmup.( Config : Intel Core i7 11700, 32 Go RAM DDR4 2122 Mhz
 | Noailles → Sainte-Marguerite Dromel | 0.03 ms | 0.18 ms |
 | Bougainville → La Fourragère | 0.30 ms | 1.64 ms |
 
-100 iterations (forward), 10 iterations (arrive-by).
+100 iterations (forward), 10 iterations (arrive-by), v1.1.0.
 
 ### IDFM Paris — 53 944 stops, 3 744 routes, 377 225 trips (~142 MB)
 
@@ -173,4 +182,4 @@ Results after JVM warmup.( Config : Intel Core i7 11700, 32 Go RAM DDR4 2122 Mhz
 | Bastille → Gare Saint-Lazare | 2.95 ms | 29.73 ms |
 | Glacière → Bonne Nouvelle | 7.19 ms | 51.55 ms |
 
-50 iterations (forward), 5 iterations (arrive-by).
+50 iterations (forward), 5 iterations (arrive-by), v1.1.0.
