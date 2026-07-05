@@ -15,7 +15,7 @@ kotlin {
     }
 }
 
-// Include raptor-kt library sources directly (pure Kotlin, no platform APIs)
+// Include raptor-kmp library sources directly (pure Kotlin, no platform APIs)
 sourceSets {
     main {
         kotlin.srcDir("../src/commonMain/kotlin")

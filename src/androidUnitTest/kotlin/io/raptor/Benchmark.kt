@@ -25,7 +25,7 @@ object Benchmark {
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark ===")
+        println("=== RAPTOR-KMP Performance Benchmark ===")
         println("Data: $baseDir")
         println()
 

@@ -83,7 +83,7 @@ object ReportGenerator {
         val all = parseResults(jsonArray)
         val sb = StringBuilder()
 
-        sb.appendLine("# RAPTOR-KT Benchmark Results")
+        sb.appendLine("# RAPTOR-KMP Benchmark Results")
         sb.appendLine()
         sb.appendLine("Generated: ${LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))}")
         sb.appendLine()

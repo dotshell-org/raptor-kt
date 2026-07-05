@@ -28,7 +28,7 @@ object BenchmarkFinlande {
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark — Finland ===")
+        println("=== RAPTOR-KMP Performance Benchmark — Finland ===")
         println("Data: $baseDir")
         println()
 

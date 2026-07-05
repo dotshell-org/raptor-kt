@@ -1,8 +1,8 @@
-# Raptor-KT
+# Raptor-KMP
 
-[![Maven Central](https://img.shields.io/maven-central/v/eu.dotshell/raptor-kt)](https://central.sonatype.com/artifact/eu.dotshell/raptor-kt)
+[![Maven Central](https://img.shields.io/maven-central/v/eu.dotshell/raptor-kmp)](https://central.sonatype.com/artifact/eu.dotshell/raptor-kmp)
 
-RAPTOR (Round-Based Public Transit Optimized Router) implementation in Kotlin for Android.
+RAPTOR (Round-Based Public Transit Optimized Router) implementation in Kotlin Multiplatform (Android + iOS).
 
 ## Installation
 
@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kt:1.1.0")
+    implementation("eu.dotshell:raptor-kmp:1.7.0")
 }
 ```
 
@@ -21,8 +21,8 @@ dependencies {
 ```kotlin
 // Place your stops.bin and routes.bin files in assets folder
 val raptor = RaptorLibrary(
-    stopsInputStream = assets.open("stops.bin"),
-    routesInputStream = assets.open("routes.bin")
+    stopsBytes = assets.open("stops.bin").readBytes(),
+    routesBytes = assets.open("routes.bin").readBytes()
 )
 
 // Search for stops
@@ -52,13 +52,13 @@ If you have multiple sets of transit data for different time periods (e.g., wint
 val raptor = RaptorLibrary(listOf(
     PeriodData(
         periodId = "winter",
-        stopsInputStream = assets.open("stops_winter.bin"),
-        routesInputStream = assets.open("routes_winter.bin")
+        stopsBytes = assets.open("stops_winter.bin").readBytes(),
+        routesBytes = assets.open("routes_winter.bin").readBytes()
     ),
     PeriodData(
         periodId = "summer",
-        stopsInputStream = assets.open("stops_summer.bin"),
-        routesInputStream = assets.open("routes_summer.bin")
+        stopsBytes = assets.open("stops_summer.bin").readBytes(),
+        routesBytes = assets.open("routes_summer.bin").readBytes()
     )
 ))
 

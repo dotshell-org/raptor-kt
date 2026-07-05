@@ -23,7 +23,7 @@ object BenchmarkParis {
             return
         }
 
-        println("=== RAPTOR-KT Performance Benchmark — Paris (IDFM) ===")
+        println("=== RAPTOR-KMP Performance Benchmark — Paris (IDFM) ===")
         println("Data: $baseDir")
         println()
 

@@ -1,6 +1,6 @@
-# RAPTOR-KT Benchmark Results
+# RAPTOR-KMP Benchmark Results
 
-Generated: 2026-07-05 14:13
+Generated: 2026-07-05 14:26
 
 ## System Configuration
 
@@ -10,7 +10,7 @@ Generated: 2026-07-05 14:13
 | JVM | Java HotSpot(TM) 64-Bit Server VM 21.0.11 |
 | CPU Cores | 16 |
 | Max Heap | 8160 MB |
-| Git | `perf/backward-raptor` @ `9d12c5b` |
+| Git | `perf/backward-raptor` @ `ba36642` |
 
 ## Routing Performance
 
