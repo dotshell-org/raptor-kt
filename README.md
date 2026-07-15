@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kmp:1.7.0")
+    implementation("eu.dotshell:raptor-kmp:1.8.0")
 }
 ```
 
@@ -99,6 +99,49 @@ for (journey in journeys) {
     raptor.displayJourney(journey)
 }
 ```
+
+### Walking & Address-Based Queries (v1.8.0)
+
+Journeys can start or end at arbitrary WGS84 coordinates (e.g. a geocoded address or POI)
+instead of stops. The router walks to/from nearby stops, and walking competes inside the
+optimization itself: a journey ending with a longer walk can beat one waiting for a later
+connection. A pure-walk journey is proposed when both points are within walking range.
+
+```kotlin
+// From home (geocoded address) to a point of interest, departing at 08:00
+val journeys = raptor.getOptimizedPaths(
+    origin = Location.Point(lat = 45.7578, lon = 4.8320),
+    destination = Location.Point(lat = 45.7605, lon = 4.8590),
+    departureTime = 8 * 3600
+)
+
+// Mixed endpoints work too (stop ids on one side, coordinates on the other),
+// and the arrive-by variant accepts the same Location endpoints:
+val arriveBy = raptor.getOptimizedPathsArriveBy(
+    origin = Location.StopIds(originStops.map { it.id }),
+    destination = Location.Point(lat = 45.7605, lon = 4.8590),
+    arrivalTime = 9 * 3600
+)
+
+// Walking model is configurable per query
+val custom = raptor.getOptimizedPaths(
+    origin = Location.Point(45.7578, 4.8320),
+    destination = Location.Point(45.7605, 4.8590),
+    departureTime = 8 * 3600,
+    walking = WalkingParams(
+        speedMetersPerSecond = 4.8 / 3.6,       // average walking speed
+        detourFactor = 1.3,                     // street-network detour vs straight line
+        maxAccessEgressDistanceMeters = 500.0,  // stop search radius around each point
+        maxDirectWalkDistanceMeters = 1000.0    // max distance for a pure-walk journey
+    )
+)
+```
+
+Walk legs are regular `JourneyLeg`s with `isTransfer = true`, a `legType` of `WALK_ACCESS`,
+`WALK_EGRESS` or `WALK_DIRECT`, and the coordinates of both ends (`fromLat`/`fromLon`/
+`toLat`/`toLon`). A coordinate endpoint uses stop index `-1` — resolve names only for
+indices `>= 0`. `Location.StopIds` on both sides behaves exactly like the classic id-based
+methods.
 
 ### Route Filtering (Whitelist/Blacklist)
 

@@ -280,7 +280,19 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
      * Kept as a fully separate code path (not a direction flag on route()): threading a parameter
      * through the forward hot loop measurably regressed its JIT compilation.
      *
-     * @return the latest feasible departure time, or Int.MIN_VALUE if no journey exists.
+     * Walking mirror of [route]: [egressSeconds] shifts each destination's round-0 seed to
+     * `arrivalTime - egress` (the latest the rides may reach that stop), and [accessSeconds]
+     * turns origin-stop departures into coordinate departures (`departure - access`) for the
+     * returned optimum and its target pruning.
+     *
+     * @param accessSeconds Walk time to reach each origin stop, parallel to [originIndices]
+     *        (unique indices required); null = no access walk.
+     * @param egressSeconds Walk time from each destination stop to the final point, parallel to
+     *        [destinationIndices] (unique indices required); null = no egress walk.
+     * @param initialBestDeparture Admissible lower bound for target pruning, e.g. the departure
+     *        of a direct origin-to-destination walk. Never returned as a result.
+     * @return the latest feasible departure time (from the coordinate when [accessSeconds] is
+     *         given), or Int.MIN_VALUE if no journey beats [initialBestDeparture].
      */
     fun routeBackward(
         originIndices: List<Int>,
@@ -288,7 +300,10 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         arrivalTime: Int,
         earliestDeparture: Int,
         routeFilter: RouteFilter? = null,
-        maxRounds: Int = 5
+        maxRounds: Int = 5,
+        accessSeconds: IntArray? = null,
+        egressSeconds: IntArray? = null,
+        initialBestDeparture: Int = Int.MIN_VALUE
     ): Int {
         val existing = lastBackwardState
         val state = if (existing != null && existing.maxRounds >= maxRounds) {
@@ -304,6 +319,12 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         for (idx in originIndices) {
             origBuf[idx] = true
         }
+        // Scatter access walk times (buffer is all-zero when accessSeconds is null)
+        if (accessSeconds != null) {
+            for (i in originIndices.indices) {
+                accessAtStop[originIndices[i]] = accessSeconds[i]
+            }
+        }
 
         val filterBuf: BooleanArray? = if (routeFilter != null) {
             val buf = routeFilterBuffer
@@ -313,19 +334,28 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             buf
         } else null
 
-        var bestDepartureAtOrigin = Int.MIN_VALUE
+        var bestDepartureAtOrigin = initialBestDeparture
 
-        // Round 0: we can be at a destination at arrivalTime itself
+        // Round 0: we can be at a destination at its egress-adjusted arrival limit
+        // (arrivalTime - egress walk; plain arrivalTime for classic queries)
         val ld = state.latestDeparture
-        for (idx in destinationIndices) {
-            ld[idx] = arrivalTime
-            state.markStop(idx)
+        for (di in destinationIndices.indices) {
+            val idx = destinationIndices[di]
+            val seed = arrivalTime - (egressSeconds?.get(di) ?: 0)
+            if (seed > ld[idx]) {
+                ld[idx] = seed
+                state.markStop(idx)
+            }
         }
         // Trailing-walk mirror: forward journeys may END with a single transfer into a destination
         // (exploreTransfers runs after each ride round). Seed round-0 labels at walk-adjacent stops
         // so the round-1 backward ride can alight there. Such a walk is always adjacent to the
         // journey's LAST ride, which is backward round 1, so seeding round 0 covers every case.
-        for (idx in destinationIndices) {
+        // The seed is per-destination: the walk must arrive by that destination's egress-adjusted
+        // limit, not a global one.
+        for (di in destinationIndices.indices) {
+            val idx = destinationIndices[di]
+            val seed = arrivalTime - (egressSeconds?.get(di) ?: 0)
             val transfers = network.reverseTransferData[idx]
             var t = 0
             while (t < transfers.size) {
@@ -333,7 +363,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 val walkTime = transfers[t + 1]
                 t += 2
                 if (sourceStopIndex == idx) continue
-                val dep = arrivalTime - walkTime
+                val dep = seed - walkTime
                 if (dep < earliestDeparture) continue
                 if (dep > ld[sourceStopIndex]) {
                     ld[sourceStopIndex] = dep
@@ -341,7 +371,7 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                 }
             }
             for (sourceStopIndex in network.implicitTransferData[idx]) {
-                val dep = arrivalTime - 120
+                val dep = seed - 120
                 if (dep < earliestDeparture) continue
                 if (dep > ld[sourceStopIndex]) {
                     ld[sourceStopIndex] = dep
@@ -368,8 +398,10 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             }
         }
 
+        // Clean up origin buffer and scattered access walk times
         for (idx in originIndices) {
             origBuf[idx] = false
+            accessAtStop[idx] = 0
         }
 
         return bestDepartureAtOrigin
@@ -430,8 +462,13 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                         // A ride reaching an origin is a complete journey endpoint: it must feed D*
                         // even when the cell already holds a LATER walk-written label (walk-first
                         // journeys are not valid endpoints, but their labels can mask this cell).
+                        // D* is the coordinate departure: stop departure minus its access walk
+                        // (0 for classic queries, where the outer condition makes the guard true).
                         if (originBuf[stopIndex]) {
-                            currentBestAtOrigin = departureTime
+                            val adjusted = departureTime - accessAtStop[stopIndex]
+                            if (adjusted > currentBestAtOrigin) {
+                                currentBestAtOrigin = adjusted
+                            }
                         }
                     }
                 }

@@ -421,6 +421,80 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
     }
 
     /**
+     * Arrive-by counterpart of the location-based [getOptimizedPaths] overload: finds journeys
+     * between two locations (stop sets and/or WGS84 points) arriving by [arrivalTime], walking
+     * to/from nearby stops as needed.
+     *
+     * A pure-walk journey (departing as late as possible) is returned when the locations are
+     * within [WalkingParams.maxDirectWalkDistanceMeters]; it is returned alone when no transit
+     * journey departs later than it. When both locations are [Location.StopIds] this delegates
+     * to the classic stop-id overload.
+     *
+     * @param arrivalTime Desired arrival time at [destination] in seconds from midnight
+     */
+    fun getOptimizedPathsArriveBy(
+        origin: Location,
+        destination: Location,
+        arrivalTime: Int,
+        maxRounds: Int = 5,
+        searchWindowMinutes: Int = 120,
+        walking: WalkingParams = WalkingParams.DEFAULT,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet()
+    ): List<List<JourneyLeg>> {
+        if (origin is Location.StopIds && destination is Location.StopIds) {
+            return getOptimizedPathsArriveBy(
+                origin.ids, destination.ids, arrivalTime, maxRounds, searchWindowMinutes,
+                allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames
+            )
+        }
+
+        val network = getCurrentNetwork()
+        val o = resolveEndpoint(network, origin, walking)
+        val d = resolveEndpoint(network, destination, walking)
+
+        // Pure-walk candidate, departing as late as possible: built at departure 0 (arrival is
+        // then the duration) and shifted so it arrives exactly at arrivalTime.
+        val directWalk = buildDirectWalkLeg(network, o, d, 0, walking)
+            ?.let { it.copy(departureTime = arrivalTime - it.arrivalTime, arrivalTime = arrivalTime) }
+        val walkDeparture = directWalk?.departureTime ?: Int.MIN_VALUE
+
+        if (o.stopIndices.isEmpty() || d.stopIndices.isEmpty()) {
+            return if (directWalk != null) listOf(listOf(directWalk)) else emptyList()
+        }
+
+        val searchWindowSeconds = searchWindowMinutes * 60
+        val earliestDeparture = maxOf(0, arrivalTime - searchWindowSeconds)
+        val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
+
+        // Single backward pass: exact latest coordinate departure still arriving on time
+        val bestDeparture = algorithm.routeBackward(
+            o.stopIndices, d.stopIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds,
+            accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds,
+            initialBestDeparture = walkDeparture
+        )
+
+        val journeys = mutableListOf<List<JourneyLeg>>()
+        if (directWalk != null) journeys.add(listOf(directWalk))
+        if (bestDeparture != Int.MIN_VALUE && bestDeparture > walkDeparture) {
+            // Tracked forward re-run at the optimal departure (same walk arrays, so origin stops
+            // are seeded at bestDeparture + access and extraction sees egress-adjusted arrivals).
+            algorithm.route(
+                o.stopIndices, d.stopIndices, bestDeparture, routeFilter, maxRounds,
+                accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
+            )
+            extractWalkingParetoJourneys(
+                algorithm, network, o, d, bestDeparture, maxRounds,
+                initialBound = Int.MAX_VALUE, maxArrivalTime = arrivalTime, journeys = journeys
+            )
+        }
+        return journeys
+    }
+
+    /**
      * Helper function to extract Pareto-optimal journeys that arrive before a given time.
      */
     private fun extractParetoJourneys(
