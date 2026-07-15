@@ -1,5 +1,18 @@
 package io.raptor.model
 
+import io.raptor.geo.Geo
+import kotlin.math.abs
+import kotlin.math.cos
+
+// Slightly under the true ~111,195 m per degree of latitude so the bounding-box prefilter
+// over-covers; the exact haversine check filters afterwards.
+private const val METERS_PER_DEGREE_LAT = 111000.0
+
+/**
+ * A stop within walking range of a query point.
+ */
+class NearbyStop(val stopIndex: Int, val distanceMeters: Double)
+
 /**
  * A container holding all network data for the router.
  */
@@ -134,6 +147,29 @@ class Network(
     }
 
     fun getStopIndex(id: Int): Int = stopIdToIndex[id] ?: -1
+
+    /**
+     * Finds every stop within [maxDistanceMeters] (great-circle) of the given WGS84 point.
+     * Brute-force scan with a bounding-box prefilter (two float compares per stop) — cold path,
+     * called once per walking query.
+     */
+    fun findNearbyStops(lat: Double, lon: Double, maxDistanceMeters: Double): List<NearbyStop> {
+        val dLatMax = maxDistanceMeters / METERS_PER_DEGREE_LAT
+        val cosLat = cos(lat * kotlin.math.PI / 180.0)
+        // Longitude degrees shrink with latitude; near the poles skip the prefilter instead of
+        // dividing by ~0.
+        val dLonMax = if (cosLat > 1e-6) dLatMax / cosLat else Double.MAX_VALUE
+        val result = ArrayList<NearbyStop>()
+        for (i in stops.indices) {
+            val stop = stops[i]
+            if (abs(stop.lat - lat) > dLatMax || abs(stop.lon - lon) > dLonMax) continue
+            val distance = Geo.distanceMeters(lat, lon, stop.lat, stop.lon)
+            if (distance <= maxDistanceMeters) {
+                result.add(NearbyStop(i, distance))
+            }
+        }
+        return result
+    }
 
     /**
      * Collects route internal indices serving any of the given stops.
