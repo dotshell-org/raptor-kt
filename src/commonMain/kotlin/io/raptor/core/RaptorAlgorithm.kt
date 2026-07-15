@@ -13,13 +13,31 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
     private val destinationBuffer = BooleanArray(network.stopCount)
     // Reusable buffer for route filter bitmask (true = allowed)
     private val routeFilterBuffer = BooleanArray(network.routeCount)
+    // Per-stop walk times for coordinate queries, scattered per query and cleared after.
+    // Kept zero-filled so the hot-loop arithmetic (arrival + egressAtStop[stop]) is a no-op
+    // for classic stop-to-stop queries — no null branch in exploreRoutes.
+    private val egressAtStop = IntArray(network.stopCount)
+    private val accessAtStop = IntArray(network.stopCount)
 
+    /**
+     * @param accessSeconds Walk time to reach each origin stop, parallel to [originIndices]
+     *        (which must then hold unique indices); null = board at [departureTime] directly.
+     * @param egressSeconds Walk time from each destination stop to the final point, parallel to
+     *        [destinationIndices] (unique indices); null = arrival at the stop is the arrival.
+     * @param initialBestArrival Admissible upper bound used for target pruning, e.g. the arrival
+     *        time of a direct origin-to-destination walk. Never returned as a result.
+     * @return best arrival at the "virtual destination" (stop arrival + its egress walk), or
+     *         Int.MAX_VALUE when no transit journey beats [initialBestArrival].
+     */
     fun route(
         originIndices: List<Int>,
         destinationIndices: List<Int>,
         departureTime: Int,
         routeFilter: RouteFilter? = null,
-        maxRounds: Int = 5
+        maxRounds: Int = 5,
+        accessSeconds: IntArray? = null,
+        egressSeconds: IntArray? = null,
+        initialBestArrival: Int = Int.MAX_VALUE
     ): Int {
         val existing = lastState
         val state = if (existing != null && existing.maxRounds >= maxRounds) {
@@ -39,6 +57,12 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         for (idx in destinationIndices) {
             destBuf[idx] = true
         }
+        // Scatter egress walk times (buffer is all-zero when egressSeconds is null)
+        if (egressSeconds != null) {
+            for (d in destinationIndices.indices) {
+                egressAtStop[destinationIndices[d]] = egressSeconds[d]
+            }
+        }
 
         // Pre-compute route filter bitmask (true = allowed)
         val filterBuf: BooleanArray? = if (routeFilter != null) {
@@ -50,13 +74,18 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
         } else null
 
         // Target pruning value
-        var bestArrivalAtDestination = Int.MAX_VALUE
+        var bestArrivalAtDestination = initialBestArrival
 
         // Step 1: Initialization (Round 0)
         val sc = state.stopCount
-        for (idx in originIndices) {
-            state.bestArrival[idx] = departureTime  // round 0 offset is 0
-            state.markStop(idx)
+        for (i in originIndices.indices) {
+            val idx = originIndices[i]
+            // round 0 offset is the access walk (0 for classic queries)
+            val seed = departureTime + (accessSeconds?.get(i) ?: 0)
+            if (seed < state.bestArrival[idx]) {
+                state.bestArrival[idx] = seed
+                state.markStop(idx)
+            }
         }
 
         // Step 2: Main loop through rounds
@@ -76,10 +105,14 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             exploreTransfers(state, k, bestArrivalAtDestination)
 
             // Update best arrival at destination for pruning in next round
+            // (destination = stop arrival + its egress walk; MAX guard avoids overflow)
             val kOff = k * sc
             for (destIdx in destinationIndices) {
-                if (state.bestArrival[kOff + destIdx] < bestArrivalAtDestination) {
-                    bestArrivalAtDestination = state.bestArrival[kOff + destIdx]
+                val arrival = state.bestArrival[kOff + destIdx]
+                if (arrival == Int.MAX_VALUE) continue
+                val adjusted = arrival + egressAtStop[destIdx]
+                if (adjusted < bestArrivalAtDestination) {
+                    bestArrivalAtDestination = adjusted
                 }
             }
 
@@ -88,15 +121,18 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
             }
         }
 
-        // Clean up destination buffer
-        for (idx in destinationIndices) {
-            destBuf[idx] = false
-        }
-
         var finalBest = Int.MAX_VALUE
         for (idx in destinationIndices) {
             val arrival = state.getBestArrival(idx)
-            if (arrival < finalBest) finalBest = arrival
+            if (arrival == Int.MAX_VALUE) continue
+            val adjusted = arrival + egressAtStop[idx]
+            if (adjusted < finalBest) finalBest = adjusted
+        }
+
+        // Clean up destination buffer and scattered egress walk times
+        for (idx in destinationIndices) {
+            destBuf[idx] = false
+            egressAtStop[idx] = 0
         }
 
         if (debug) {
@@ -170,8 +206,13 @@ class RaptorAlgorithm(private val network: Network, private val debug: Boolean =
                         state.markStop(stopIndex)
 
                         // If this stop is one of our destinations, update currentBestAtDestination
+                        // (adjusted by its egress walk — 0 for classic queries, where the guard is
+                        // always true since the write condition ensured arrivalTime < current bound)
                         if (destinationBuf[stopIndex]) {
-                            currentBestAtDestination = arrivalTime
+                            val adjusted = arrivalTime + egressAtStop[stopIndex]
+                            if (adjusted < currentBestAtDestination) {
+                                currentBestAtDestination = adjusted
+                            }
                         }
                     }
                 }
