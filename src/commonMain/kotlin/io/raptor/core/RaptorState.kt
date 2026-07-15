@@ -2,6 +2,18 @@ package io.raptor.core
 
 import io.raptor.model.Network
 
+/**
+ * Kind of journey leg. TRANSIT and TRANSFER cover classic stop-to-stop journeys; the WALK_*
+ * kinds are produced by coordinate-based queries (walk from/to an arbitrary point).
+ */
+enum class LegType {
+    TRANSIT,
+    TRANSFER,
+    WALK_ACCESS,
+    WALK_EGRESS,
+    WALK_DIRECT
+}
+
 data class JourneyLeg(
     val fromStopIndex: Int,
     val toStopIndex: Int,
@@ -11,7 +23,14 @@ data class JourneyLeg(
     val isTransfer: Boolean,
     val intermediateStopIndices: List<Int> = emptyList(),
     val intermediateArrivalTimes: List<Int> = emptyList(),
-    val direction: String? = null
+    val direction: String? = null,
+    // A -1 stop index means "arbitrary coordinate endpoint"; walk legs carry the coordinates of
+    // both ends so consumers never need to resolve a -1 index against the stop list.
+    val legType: LegType = if (isTransfer) LegType.TRANSFER else LegType.TRANSIT,
+    val fromLat: Double? = null,
+    val fromLon: Double? = null,
+    val toLat: Double? = null,
+    val toLon: Double? = null
 )
 
 /**
