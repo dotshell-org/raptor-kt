@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kmp:1.9.0")
+    implementation("eu.dotshell:raptor-kmp:2.0.0")
 }
 ```
 
@@ -100,7 +100,7 @@ for (journey in journeys) {
 }
 ```
 
-### Walking & Address-Based Queries (v1.8.0)
+### Walking & Address-Based Queries (v2.0.0)
 
 Journeys can start or end at arbitrary WGS84 coordinates (e.g. a geocoded address or POI)
 instead of stops. The router walks to/from nearby stops, and walking competes inside the
@@ -144,7 +144,7 @@ indices `>= 0`. `Location.StopIds` on both sides behaves exactly like the classi
 methods.
 
 When the app has access to a real pedestrian router (e.g. OSRM foot), it can supply exact
-walk times instead of the great-circle estimate (v1.9.0):
+walk times instead of the great-circle estimate:
 
 ```kotlin
 val journeys = raptor.getOptimizedPaths(
