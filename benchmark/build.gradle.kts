@@ -71,6 +71,11 @@ fun registerJmhRun(taskName: String, pattern: String, heap: String, extraArgs: L
         classpath = files(layout.buildDirectory.file("libs/benchmark-jmh.jar"))
         mainClass.set("org.openjdk.jmh.Main")
         maxHeapSize = heap
+
+        doFirst {
+            layout.buildDirectory.dir("reports/jmh").get().asFile.mkdirs()
+        }
+
         // Forked benchmark JVMs inherit the parent's input arguments (-D and -Xmx included)
         systemProperty("raptor.dataRoot", rootProject.projectDir.absolutePath)
         args = listOf(pattern) + extraArgs + listOf(
@@ -80,6 +85,8 @@ fun registerJmhRun(taskName: String, pattern: String, heap: String, extraArgs: L
     }
 
 registerJmhRun("jmhNamedLyon", "io.raptor.benchmark.NamedRoutesBenchmark.*", "1g")
+// High-precision LYON run (5 forks, 10+20 iterations) for refreshing the README tables, ~35 min
+registerJmhRun("jmhPrecisionLyon", "io.raptor.benchmark.LyonPrecision.*", "1g")
 registerJmhRun("jmhNamedRtm", "io.raptor.benchmark.NamedRoutesRtmBenchmark.*", "1g")
 registerJmhRun("jmhNamedParis", "io.raptor.benchmark.NamedRoutesParisBenchmark.*", "3g")
 // 1000-random-query aggregate on the Paris network (dataset param overridden via JMH CLI)

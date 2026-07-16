@@ -1,8 +1,10 @@
 package io.raptor
 
 import io.raptor.core.JourneyLeg
+import io.raptor.core.LegType
 import io.raptor.core.RaptorAlgorithm
 import io.raptor.data.NetworkLoader
+import io.raptor.geo.Geo
 import io.raptor.model.Network
 import io.raptor.model.Stop
 
@@ -144,6 +146,263 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
     }
 
     /**
+     * Searches for optimized paths between two locations — stop sets and/or arbitrary WGS84
+     * points (e.g. geocoded addresses) — walking to/from nearby stops as needed.
+     *
+     * Walking competes inside the optimization: a journey ending with a longer egress walk can
+     * beat one taking a later extra ride. A pure-walk journey is returned first when the two
+     * locations are within [WalkingParams.maxDirectWalkDistanceMeters] of each other. When both
+     * locations are [Location.StopIds] this delegates to the classic stop-id overload.
+     *
+     * Walk legs have [LegType.WALK_ACCESS]/[LegType.WALK_EGRESS]/[LegType.WALK_DIRECT], carry
+     * the coordinates of both ends, and use stop index -1 for a coordinate endpoint.
+     *
+     * @param departureTime Departure time from [origin] in seconds from midnight
+     * @param walking Walking speed/radius model used to resolve [Location.Point] endpoints
+     * @param directWalkSecondsOverride Caller-provided duration for the pure-walk journey (e.g.
+     *        from a street-network router). Replaces the great-circle duration estimate; the
+     *        walk's eligibility (distance ≤ [WalkingParams.maxDirectWalkDistanceMeters]) and
+     *        endpoints are still derived from coordinates.
+     */
+    fun getOptimizedPaths(
+        origin: Location,
+        destination: Location,
+        departureTime: Int,
+        maxRounds: Int = 5,
+        walking: WalkingParams = WalkingParams.DEFAULT,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet(),
+        directWalkSecondsOverride: Int? = null
+    ): List<List<JourneyLeg>> {
+        if (origin is Location.StopIds && destination is Location.StopIds) {
+            return getOptimizedPaths(
+                origin.ids, destination.ids, departureTime, maxRounds,
+                allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames
+            )
+        }
+
+        val network = getCurrentNetwork()
+        val o = resolveEndpoint(network, origin, walking)
+        val d = resolveEndpoint(network, destination, walking)
+
+        // Pure-walk candidate; its arrival is also the initial pruning bound for the search
+        val directWalk = buildDirectWalkLeg(network, o, d, departureTime, walking, directWalkSecondsOverride)
+
+        if (o.stopIndices.isEmpty() || d.stopIndices.isEmpty()) {
+            return if (directWalk != null) listOf(listOf(directWalk)) else emptyList()
+        }
+
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
+        val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
+        val walkArrival = directWalk?.arrivalTime ?: Int.MAX_VALUE
+        val best = algorithm.route(
+            o.stopIndices, d.stopIndices, departureTime, routeFilter, maxRounds,
+            accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds,
+            initialBestArrival = walkArrival
+        )
+
+        val journeys = mutableListOf<List<JourneyLeg>>()
+        if (directWalk != null) journeys.add(listOf(directWalk))
+        if (best != Int.MAX_VALUE) {
+            extractWalkingParetoJourneys(
+                algorithm, network, o, d, maxRounds,
+                initialBound = walkArrival, maxArrivalTime = Int.MAX_VALUE, journeys = journeys
+            )
+        }
+        return journeys
+    }
+
+    /**
+     * Endpoint resolved to concrete stop indices. [walkSeconds] is parallel to [stopIndices] and
+     * null for stop-id endpoints (no access/egress walk); [lat]/[lon] are set for Point endpoints.
+     */
+    private class ResolvedEndpoint(
+        val stopIndices: List<Int>,
+        val walkSeconds: IntArray?,
+        val lat: Double?,
+        val lon: Double?
+    ) {
+        fun walkSecondsAt(stopIndex: Int): Int {
+            val walks = walkSeconds ?: return 0
+            for (i in stopIndices.indices) {
+                if (stopIndices[i] == stopIndex) return walks[i]
+            }
+            return 0
+        }
+    }
+
+    private fun resolveEndpoint(network: Network, location: Location, walking: WalkingParams): ResolvedEndpoint =
+        when (location) {
+            is Location.StopIds -> {
+                // De-duplicated: route() requires unique indices when walk arrays are in play
+                val seen = HashSet<Int>()
+                val indices = ArrayList<Int>(location.ids.size)
+                for (id in location.ids) {
+                    val ix = network.getStopIndex(id)
+                    if (ix != -1 && seen.add(ix)) indices.add(ix)
+                }
+                ResolvedEndpoint(indices, null, null, null)
+            }
+            is Location.Point -> {
+                val nearby = network.findNearbyStops(location.lat, location.lon, walking.maxAccessEgressDistanceMeters)
+                val indices = ArrayList<Int>(nearby.size)
+                val walks = IntArray(nearby.size)
+                for (i in nearby.indices) {
+                    indices.add(nearby[i].stopIndex)
+                    walks[i] = walking.walkSeconds(nearby[i].distanceMeters)
+                }
+                ResolvedEndpoint(indices, walks, location.lat, location.lon)
+            }
+            is Location.ResolvedPoint -> {
+                // Caller-provided walk times; de-duplicated keeping the smallest walk per stop
+                val positionByIndex = HashMap<Int, Int>(location.stops.size * 2)
+                val indices = ArrayList<Int>(location.stops.size)
+                val walks = ArrayList<Int>(location.stops.size)
+                for (stopWalk in location.stops) {
+                    val ix = network.getStopIndex(stopWalk.stopId)
+                    if (ix == -1) continue
+                    val pos = positionByIndex[ix]
+                    if (pos == null) {
+                        positionByIndex[ix] = indices.size
+                        indices.add(ix)
+                        walks.add(stopWalk.walkSeconds)
+                    } else if (stopWalk.walkSeconds < walks[pos]) {
+                        walks[pos] = stopWalk.walkSeconds
+                    }
+                }
+                ResolvedEndpoint(indices, walks.toIntArray(), location.lat, location.lon)
+            }
+        }
+
+    private class WalkCandidate(val stopIndex: Int, val lat: Double, val lon: Double)
+
+    private fun walkCandidates(network: Network, endpoint: ResolvedEndpoint): List<WalkCandidate> =
+        if (endpoint.lat != null && endpoint.lon != null) {
+            listOf(WalkCandidate(-1, endpoint.lat, endpoint.lon))
+        } else {
+            endpoint.stopIndices.map { WalkCandidate(it, network.stops[it].lat, network.stops[it].lon) }
+        }
+
+    /**
+     * Builds the pure-walk leg between the two locations when they are within walking range.
+     * For stop-set endpoints the closest resolved stop is used as the walk end.
+     * [overrideSeconds] replaces the great-circle duration estimate when provided.
+     */
+    private fun buildDirectWalkLeg(
+        network: Network,
+        origin: ResolvedEndpoint,
+        destination: ResolvedEndpoint,
+        departureTime: Int,
+        walking: WalkingParams,
+        overrideSeconds: Int? = null
+    ): JourneyLeg? {
+        val from = walkCandidates(network, origin)
+        val to = walkCandidates(network, destination)
+
+        var bestDist = Double.MAX_VALUE
+        var bestFrom: WalkCandidate? = null
+        var bestTo: WalkCandidate? = null
+        for (f in from) {
+            for (t in to) {
+                val dist = Geo.distanceMeters(f.lat, f.lon, t.lat, t.lon)
+                if (dist < bestDist) {
+                    bestDist = dist; bestFrom = f; bestTo = t
+                }
+            }
+        }
+        if (bestFrom == null || bestTo == null || bestDist > walking.maxDirectWalkDistanceMeters) return null
+
+        return JourneyLeg(
+            fromStopIndex = bestFrom.stopIndex,
+            toStopIndex = bestTo.stopIndex,
+            departureTime = departureTime,
+            arrivalTime = departureTime + (overrideSeconds ?: walking.walkSeconds(bestDist)),
+            routeName = null,
+            isTransfer = true,
+            legType = LegType.WALK_DIRECT,
+            fromLat = bestFrom.lat, fromLon = bestFrom.lon,
+            toLat = bestTo.lat, toLon = bestTo.lon
+        )
+    }
+
+    /**
+     * Extracts Pareto-optimal journeys (egress-adjusted arrival vs number of rounds) from the
+     * last forward run and wraps them with access/egress walk legs. Only journeys strictly
+     * beating [initialBound] (e.g. the direct-walk arrival) and arriving by [maxArrivalTime]
+     * are kept.
+     */
+    private fun extractWalkingParetoJourneys(
+        algorithm: RaptorAlgorithm,
+        network: Network,
+        origin: ResolvedEndpoint,
+        destination: ResolvedEndpoint,
+        maxRounds: Int,
+        initialBound: Int,
+        maxArrivalTime: Int,
+        journeys: MutableList<List<JourneyLeg>>
+    ) {
+        var lastBestArrival = initialBound
+        for (k in 1..maxRounds) {
+            var bestPos = -1
+            var bestAdjusted = Int.MAX_VALUE
+            for (i in destination.stopIndices.indices) {
+                val t = algorithm.getArrivalTime(destination.stopIndices[i], k)
+                if (t == Int.MAX_VALUE) continue
+                val adjusted = t + (destination.walkSeconds?.get(i) ?: 0)
+                if (adjusted < bestAdjusted) {
+                    bestAdjusted = adjusted; bestPos = i
+                }
+            }
+            if (bestPos == -1 || bestAdjusted >= lastBestArrival || bestAdjusted > maxArrivalTime) continue
+
+            val destIndex = destination.stopIndices[bestPos]
+            val transit = algorithm.getJourney(destIndex, k)
+            if (transit.isNullOrEmpty()) continue
+
+            val legs = ArrayList<JourneyLeg>(transit.size + 2)
+            // Journeys always board at an origin stop (round-0 marks receive no transfers)
+            val boardStop = transit.first().fromStopIndex
+            val accessSecs = origin.walkSecondsAt(boardStop)
+            if (accessSecs > 0) {
+                val stop = network.stops[boardStop]
+                // Anchored to the boarding: leave as late as possible and wait at the origin
+                // rather than at the stop (a midnight query whose first bus runs at 6 am shows
+                // a ~5:5x departure, not an absurd six-hour "journey" starting at midnight).
+                // Always valid: the boarding departs at or after seed = query time + walk.
+                val boardingDeparture = transit.first().departureTime
+                legs.add(
+                    JourneyLeg(
+                        fromStopIndex = -1, toStopIndex = boardStop,
+                        departureTime = boardingDeparture - accessSecs, arrivalTime = boardingDeparture,
+                        routeName = null, isTransfer = true, legType = LegType.WALK_ACCESS,
+                        fromLat = origin.lat, fromLon = origin.lon,
+                        toLat = stop.lat, toLon = stop.lon
+                    )
+                )
+            }
+            legs.addAll(transit)
+            val egressSecs = destination.walkSeconds?.get(bestPos) ?: 0
+            if (egressSecs > 0) {
+                val stop = network.stops[destIndex]
+                val stopArrival = algorithm.getArrivalTime(destIndex, k)
+                legs.add(
+                    JourneyLeg(
+                        fromStopIndex = destIndex, toStopIndex = -1,
+                        departureTime = stopArrival, arrivalTime = stopArrival + egressSecs,
+                        routeName = null, isTransfer = true, legType = LegType.WALK_EGRESS,
+                        fromLat = stop.lat, fromLon = stop.lon,
+                        toLat = destination.lat, toLon = destination.lon
+                    )
+                )
+            }
+            journeys.add(legs)
+            lastBestArrival = bestAdjusted
+        }
+    }
+
+    /**
      * Searches for optimized paths that arrive before a specified time.
      * A single backward RAPTOR pass finds the exact latest departure that still arrives on time,
      * then one forward run at that departure reconstructs the journeys.
@@ -189,6 +448,81 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         // One tracked forward run at the optimal departure so journeys can be reconstructed.
         algorithm.route(originIndices, destinationIndices, bestDeparture, routeFilter, maxRounds)
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
+    }
+
+    /**
+     * Arrive-by counterpart of the location-based [getOptimizedPaths] overload: finds journeys
+     * between two locations (stop sets and/or WGS84 points) arriving by [arrivalTime], walking
+     * to/from nearby stops as needed.
+     *
+     * A pure-walk journey (departing as late as possible) is returned when the locations are
+     * within [WalkingParams.maxDirectWalkDistanceMeters]; it is returned alone when no transit
+     * journey departs later than it. When both locations are [Location.StopIds] this delegates
+     * to the classic stop-id overload.
+     *
+     * @param arrivalTime Desired arrival time at [destination] in seconds from midnight
+     */
+    fun getOptimizedPathsArriveBy(
+        origin: Location,
+        destination: Location,
+        arrivalTime: Int,
+        maxRounds: Int = 5,
+        searchWindowMinutes: Int = 120,
+        walking: WalkingParams = WalkingParams.DEFAULT,
+        allowedRouteIds: Set<Int>? = null,
+        allowedRouteNames: Set<String>? = null,
+        blockedRouteIds: Set<Int> = emptySet(),
+        blockedRouteNames: Set<String> = emptySet(),
+        directWalkSecondsOverride: Int? = null
+    ): List<List<JourneyLeg>> {
+        if (origin is Location.StopIds && destination is Location.StopIds) {
+            return getOptimizedPathsArriveBy(
+                origin.ids, destination.ids, arrivalTime, maxRounds, searchWindowMinutes,
+                allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames
+            )
+        }
+
+        val network = getCurrentNetwork()
+        val o = resolveEndpoint(network, origin, walking)
+        val d = resolveEndpoint(network, destination, walking)
+
+        // Pure-walk candidate, departing as late as possible: built at departure 0 (arrival is
+        // then the duration) and shifted so it arrives exactly at arrivalTime.
+        val directWalk = buildDirectWalkLeg(network, o, d, 0, walking, directWalkSecondsOverride)
+            ?.let { it.copy(departureTime = arrivalTime - it.arrivalTime, arrivalTime = arrivalTime) }
+        val walkDeparture = directWalk?.departureTime ?: Int.MIN_VALUE
+
+        if (o.stopIndices.isEmpty() || d.stopIndices.isEmpty()) {
+            return if (directWalk != null) listOf(listOf(directWalk)) else emptyList()
+        }
+
+        val searchWindowSeconds = searchWindowMinutes * 60
+        val earliestDeparture = maxOf(0, arrivalTime - searchWindowSeconds)
+        val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
+        val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
+
+        // Single backward pass: exact latest coordinate departure still arriving on time
+        val bestDeparture = algorithm.routeBackward(
+            o.stopIndices, d.stopIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds,
+            accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds,
+            initialBestDeparture = walkDeparture
+        )
+
+        val journeys = mutableListOf<List<JourneyLeg>>()
+        if (directWalk != null) journeys.add(listOf(directWalk))
+        if (bestDeparture != Int.MIN_VALUE && bestDeparture > walkDeparture) {
+            // Tracked forward re-run at the optimal departure (same walk arrays, so origin stops
+            // are seeded at bestDeparture + access and extraction sees egress-adjusted arrivals).
+            algorithm.route(
+                o.stopIndices, d.stopIndices, bestDeparture, routeFilter, maxRounds,
+                accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
+            )
+            extractWalkingParetoJourneys(
+                algorithm, network, o, d, maxRounds,
+                initialBound = Int.MAX_VALUE, maxArrivalTime = arrivalTime, journeys = journeys
+            )
+        }
+        return journeys
     }
 
     /**
@@ -323,25 +657,29 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val network = getCurrentNetwork()
         val stops = network.stops
         for ((index, leg) in journey.withIndex()) {
-            val fromStop = stops[leg.fromStopIndex]
-            val toStop = stops[leg.toStopIndex]
+            // Stop index -1 = arbitrary coordinate endpoint of a walk leg
+            val fromName = if (leg.fromStopIndex >= 0) stops[leg.fromStopIndex].name
+                else "(${leg.fromLat}, ${leg.fromLon})"
+            val toName = if (leg.toStopIndex >= 0) stops[leg.toStopIndex].name
+                else "(${leg.toLat}, ${leg.toLon})"
             val depTime = formatTime(leg.departureTime)
             val arrTime = formatTime(leg.arrivalTime)
 
             if (leg.isTransfer) {
-                println("${index + 1}. 🚶 Transfer: ${fromStop.name} → ${toStop.name}")
+                val label = if (leg.legType == LegType.TRANSFER) "Transfer" else "Walk"
+                println("${index + 1}. 🚶 $label: $fromName → $toName")
                 println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
             } else {
                 val directionInfo = if (leg.direction != null) " to ${leg.direction}" else ""
-                println("${index + 1}. 🚍 Line ${leg.routeName}$directionInfo: ${fromStop.name} → ${toStop.name}")
+                println("${index + 1}. 🚍 Line ${leg.routeName}$directionInfo: $fromName → $toName")
                 if (showIntermediateStops && leg.intermediateStopIndices.isNotEmpty()) {
-                    println("   Departure: $depTime from ${fromStop.name}")
+                    println("   Departure: $depTime from $fromName")
                     for (i in leg.intermediateStopIndices.indices) {
                         val intermediateStop = stops[leg.intermediateStopIndices[i]]
                         val intermediateTime = formatTime(leg.intermediateArrivalTimes[i])
                         println("     - $intermediateTime: ${intermediateStop.name}")
                     }
-                    println("   Arrival: $arrTime at ${toStop.name} (${(leg.arrivalTime - leg.departureTime) / 60} min)")
+                    println("   Arrival: $arrTime at $toName (${(leg.arrivalTime - leg.departureTime) / 60} min)")
                 } else {
                     println("   Departure: $depTime | Arrival: $arrTime (${(leg.arrivalTime - leg.departureTime) / 60} min)")
                 }
