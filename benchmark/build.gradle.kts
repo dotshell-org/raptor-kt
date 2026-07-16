@@ -80,6 +80,8 @@ fun registerJmhRun(taskName: String, pattern: String, heap: String, extraArgs: L
     }
 
 registerJmhRun("jmhNamedLyon", "io.raptor.benchmark.NamedRoutesBenchmark.*", "1g")
+// High-precision LYON run (5 forks, 10+20 iterations) for refreshing the README tables, ~35 min
+registerJmhRun("jmhPrecisionLyon", "io.raptor.benchmark.LyonPrecision.*", "1g")
 registerJmhRun("jmhNamedRtm", "io.raptor.benchmark.NamedRoutesRtmBenchmark.*", "1g")
 registerJmhRun("jmhNamedParis", "io.raptor.benchmark.NamedRoutesParisBenchmark.*", "3g")
 // 1000-random-query aggregate on the Paris network (dataset param overridden via JMH CLI)
