@@ -3,12 +3,36 @@ package io.raptor
 import kotlin.math.ceil
 
 /**
- * An itinerary endpoint: either a set of stop ids (classic search) or an arbitrary WGS84 point
- * (e.g. a geocoded address or POI), reached on foot through nearby stops.
+ * An itinerary endpoint: a set of stop ids (classic search), an arbitrary WGS84 point
+ * (e.g. a geocoded address or POI) reached on foot through nearby stops, or a point whose
+ * walks to nearby stops were already computed by the caller.
  */
 sealed class Location {
     data class StopIds(val ids: List<Int>) : Location()
+
+    /** Nearby stops and walk durations are estimated internally (great-circle × detour factor). */
     data class Point(val lat: Double, val lon: Double) : Location()
+
+    /**
+     * A point with caller-provided walk times to its nearby stops — e.g. from a street-network
+     * pedestrian router — bypassing the built-in great-circle estimation. Unknown stop ids are
+     * ignored; duplicated ids keep their smallest walk time. The caller is responsible for the
+     * candidate radius.
+     */
+    data class ResolvedPoint(
+        val lat: Double,
+        val lon: Double,
+        val stops: List<StopWalk>
+    ) : Location()
+}
+
+/**
+ * One reachable stop of a [Location.ResolvedPoint] with its walk duration in seconds.
+ */
+data class StopWalk(val stopId: Int, val walkSeconds: Int) {
+    init {
+        require(walkSeconds >= 0) { "walkSeconds must be >= 0" }
+    }
 }
 
 /**

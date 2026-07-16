@@ -159,6 +159,10 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
      *
      * @param departureTime Departure time from [origin] in seconds from midnight
      * @param walking Walking speed/radius model used to resolve [Location.Point] endpoints
+     * @param directWalkSecondsOverride Caller-provided duration for the pure-walk journey (e.g.
+     *        from a street-network router). Replaces the great-circle duration estimate; the
+     *        walk's eligibility (distance ≤ [WalkingParams.maxDirectWalkDistanceMeters]) and
+     *        endpoints are still derived from coordinates.
      */
     fun getOptimizedPaths(
         origin: Location,
@@ -169,7 +173,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         allowedRouteIds: Set<Int>? = null,
         allowedRouteNames: Set<String>? = null,
         blockedRouteIds: Set<Int> = emptySet(),
-        blockedRouteNames: Set<String> = emptySet()
+        blockedRouteNames: Set<String> = emptySet(),
+        directWalkSecondsOverride: Int? = null
     ): List<List<JourneyLeg>> {
         if (origin is Location.StopIds && destination is Location.StopIds) {
             return getOptimizedPaths(
@@ -183,7 +188,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val d = resolveEndpoint(network, destination, walking)
 
         // Pure-walk candidate; its arrival is also the initial pruning bound for the search
-        val directWalk = buildDirectWalkLeg(network, o, d, departureTime, walking)
+        val directWalk = buildDirectWalkLeg(network, o, d, departureTime, walking, directWalkSecondsOverride)
 
         if (o.stopIndices.isEmpty() || d.stopIndices.isEmpty()) {
             return if (directWalk != null) listOf(listOf(directWalk)) else emptyList()
@@ -250,6 +255,25 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
                 }
                 ResolvedEndpoint(indices, walks, location.lat, location.lon)
             }
+            is Location.ResolvedPoint -> {
+                // Caller-provided walk times; de-duplicated keeping the smallest walk per stop
+                val positionByIndex = HashMap<Int, Int>(location.stops.size * 2)
+                val indices = ArrayList<Int>(location.stops.size)
+                val walks = ArrayList<Int>(location.stops.size)
+                for (stopWalk in location.stops) {
+                    val ix = network.getStopIndex(stopWalk.stopId)
+                    if (ix == -1) continue
+                    val pos = positionByIndex[ix]
+                    if (pos == null) {
+                        positionByIndex[ix] = indices.size
+                        indices.add(ix)
+                        walks.add(stopWalk.walkSeconds)
+                    } else if (stopWalk.walkSeconds < walks[pos]) {
+                        walks[pos] = stopWalk.walkSeconds
+                    }
+                }
+                ResolvedEndpoint(indices, walks.toIntArray(), location.lat, location.lon)
+            }
         }
 
     private class WalkCandidate(val stopIndex: Int, val lat: Double, val lon: Double)
@@ -264,13 +288,15 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
     /**
      * Builds the pure-walk leg between the two locations when they are within walking range.
      * For stop-set endpoints the closest resolved stop is used as the walk end.
+     * [overrideSeconds] replaces the great-circle duration estimate when provided.
      */
     private fun buildDirectWalkLeg(
         network: Network,
         origin: ResolvedEndpoint,
         destination: ResolvedEndpoint,
         departureTime: Int,
-        walking: WalkingParams
+        walking: WalkingParams,
+        overrideSeconds: Int? = null
     ): JourneyLeg? {
         val from = walkCandidates(network, origin)
         val to = walkCandidates(network, destination)
@@ -292,7 +318,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
             fromStopIndex = bestFrom.stopIndex,
             toStopIndex = bestTo.stopIndex,
             departureTime = departureTime,
-            arrivalTime = departureTime + walking.walkSeconds(bestDist),
+            arrivalTime = departureTime + (overrideSeconds ?: walking.walkSeconds(bestDist)),
             routeName = null,
             isTransfer = true,
             legType = LegType.WALK_DIRECT,
@@ -442,7 +468,8 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         allowedRouteIds: Set<Int>? = null,
         allowedRouteNames: Set<String>? = null,
         blockedRouteIds: Set<Int> = emptySet(),
-        blockedRouteNames: Set<String> = emptySet()
+        blockedRouteNames: Set<String> = emptySet(),
+        directWalkSecondsOverride: Int? = null
     ): List<List<JourneyLeg>> {
         if (origin is Location.StopIds && destination is Location.StopIds) {
             return getOptimizedPathsArriveBy(
@@ -457,7 +484,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         // Pure-walk candidate, departing as late as possible: built at departure 0 (arrival is
         // then the duration) and shifted so it arrives exactly at arrivalTime.
-        val directWalk = buildDirectWalkLeg(network, o, d, 0, walking)
+        val directWalk = buildDirectWalkLeg(network, o, d, 0, walking, directWalkSecondsOverride)
             ?.let { it.copy(departureTime = arrivalTime - it.arrivalTime, arrivalTime = arrivalTime) }
         val walkDeparture = directWalk?.departureTime ?: Int.MIN_VALUE
 

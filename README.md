@@ -10,7 +10,7 @@ Add to your `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("eu.dotshell:raptor-kmp:1.8.0")
+    implementation("eu.dotshell:raptor-kmp:1.9.0")
 }
 ```
 
@@ -142,6 +142,21 @@ Walk legs are regular `JourneyLeg`s with `isTransfer = true`, a `legType` of `WA
 `toLat`/`toLon`). A coordinate endpoint uses stop index `-1` — resolve names only for
 indices `>= 0`. `Location.StopIds` on both sides behaves exactly like the classic id-based
 methods.
+
+When the app has access to a real pedestrian router (e.g. OSRM foot), it can supply exact
+walk times instead of the great-circle estimate (v1.9.0):
+
+```kotlin
+val journeys = raptor.getOptimizedPaths(
+    origin = Location.ResolvedPoint(
+        lat = 45.7578, lon = 4.8320,
+        stops = listOf(StopWalk(stopId = 1234, walkSeconds = 240), StopWalk(1237, 310))
+    ),
+    destination = Location.Point(45.7605, 4.8590),
+    departureTime = 8 * 3600,
+    directWalkSecondsOverride = null // or the router's origin->destination walk duration
+)
+```
 
 ### Route Filtering (Whitelist/Blacklist)
 
