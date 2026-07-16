@@ -207,7 +207,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         if (directWalk != null) journeys.add(listOf(directWalk))
         if (best != Int.MAX_VALUE) {
             extractWalkingParetoJourneys(
-                algorithm, network, o, d, departureTime, maxRounds,
+                algorithm, network, o, d, maxRounds,
                 initialBound = walkArrival, maxArrivalTime = Int.MAX_VALUE, journeys = journeys
             )
         }
@@ -338,7 +338,6 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         network: Network,
         origin: ResolvedEndpoint,
         destination: ResolvedEndpoint,
-        departureTime: Int,
         maxRounds: Int,
         initialBound: Int,
         maxArrivalTime: Int,
@@ -368,10 +367,15 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
             val accessSecs = origin.walkSecondsAt(boardStop)
             if (accessSecs > 0) {
                 val stop = network.stops[boardStop]
+                // Anchored to the boarding: leave as late as possible and wait at the origin
+                // rather than at the stop (a midnight query whose first bus runs at 6 am shows
+                // a ~5:5x departure, not an absurd six-hour "journey" starting at midnight).
+                // Always valid: the boarding departs at or after seed = query time + walk.
+                val boardingDeparture = transit.first().departureTime
                 legs.add(
                     JourneyLeg(
                         fromStopIndex = -1, toStopIndex = boardStop,
-                        departureTime = departureTime, arrivalTime = departureTime + accessSecs,
+                        departureTime = boardingDeparture - accessSecs, arrivalTime = boardingDeparture,
                         routeName = null, isTransfer = true, legType = LegType.WALK_ACCESS,
                         fromLat = origin.lat, fromLon = origin.lon,
                         toLat = stop.lat, toLon = stop.lon
@@ -514,7 +518,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
                 accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
             )
             extractWalkingParetoJourneys(
-                algorithm, network, o, d, bestDeparture, maxRounds,
+                algorithm, network, o, d, maxRounds,
                 initialBound = Int.MAX_VALUE, maxArrivalTime = arrivalTime, journeys = journeys
             )
         }

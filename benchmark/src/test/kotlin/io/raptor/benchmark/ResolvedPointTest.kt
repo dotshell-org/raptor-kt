@@ -59,8 +59,9 @@ class ResolvedPointTest {
         assertEquals(1, journeys.size)
         val access = journeys[0].first()
         assertEquals(LegType.WALK_ACCESS, access.legType)
-        // Provided seconds, not the ~195 s great-circle estimate
-        assertEquals(dep0800 + 250, access.arrivalTime)
+        // Provided seconds (not the ~195 s great-circle estimate), anchored to the 29100 boarding
+        assertEquals(29100 - 250, access.departureTime)
+        assertEquals(29100, access.arrivalTime)
     }
 
     @Test
@@ -114,7 +115,8 @@ class ResolvedPointTest {
         )
 
         assertEquals(1, journeys.size)
-        assertEquals(dep0800 + 250, journeys[0].first().arrivalTime)
+        // The kept (smallest) 250 s walk shows in the boarding-anchored departure
+        assertEquals(29100 - 250, journeys[0].first().departureTime)
     }
 
     @Test

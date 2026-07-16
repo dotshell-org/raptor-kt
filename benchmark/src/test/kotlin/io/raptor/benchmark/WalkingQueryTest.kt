@@ -73,12 +73,13 @@ class WalkingQueryTest {
         assertTrue(access.isTransfer)
         assertEquals(-1, access.fromStopIndex)
         assertEquals(0, access.toStopIndex)
-        assertEquals(dep0800, access.departureTime)
-        assertEquals(dep0800 + expectedAccess, access.arrivalTime)
+        // Anchored to the boarding: leave as late as possible, arrive exactly at departure
+        assertEquals(29100 - expectedAccess, access.departureTime)
+        assertEquals(29100, access.arrivalTime)
         assertEquals(oLat, access.fromLat!!, 1e-9)
         assertEquals(oLon, access.fromLon!!, 1e-9)
         assertEquals(s1Lat, access.toLat!!, 1e-9)
-        assertTrue("must reach the stop before boarding", access.arrivalTime <= ride.departureTime)
+        assertEquals("the walk ends exactly at boarding", ride.departureTime, access.arrivalTime)
 
         assertEquals(LegType.TRANSIT, ride.legType)
         assertEquals("L1", ride.routeName)
