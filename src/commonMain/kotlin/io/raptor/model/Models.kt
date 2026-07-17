@@ -8,8 +8,9 @@ data class Stop(
     val name: String,
     val lat: Double,
     val lon: Double,
-    val routeIds: IntArray,      // IDs of routes serving this stop
-    val transfers: List<Transfer> // List of possible walking transfers
+    val routeIds: IntArray,       // IDs of routes serving this stop
+    val transfers: List<Transfer>, // List of possible walking transfers
+    val zone: String? = null       // Fare zone (RST3+); null for older formats or unzoned stops
 )
 
 /**

@@ -9,8 +9,9 @@ object NetworkLoader {
         val magic = reader.peekMagic()
         return when (magic) {
             "RSTS" -> loadStopsV1(reader)
-            "RST2" -> loadStopsV2(reader)
-            else -> throw IllegalStateException("Unknown stops format: '$magic'. Expected RSTS (v1) or RST2 (v2).")
+            "RST2" -> loadStopsFlat(reader, "RST2", hasZone = false)
+            "RST3" -> loadStopsFlat(reader, "RST3", hasZone = true)
+            else -> throw IllegalStateException("Unknown stops format: '$magic'. Expected RSTS (v1), RST2 (v2) or RST3 (v3).")
         }
     }
 
@@ -93,10 +94,15 @@ object NetworkLoader {
         }
     }
 
-    // ── V2 format (pre-sorted, flat layout) ───────────────────────────
+    // ── V2/V3 format (pre-sorted, flat layout) ────────────────────────
 
-    private fun loadStopsV2(reader: BinaryReader): List<Stop> {
-        reader.readMagic("RST2")
+    /**
+     * Shared reader for the flat stops layout. RST3 adds a per-stop fare zone string right after
+     * `lon`; RST2 has no such field ([hasZone] = false → [Stop.zone] stays null). An empty zone
+     * string decodes to null so unzoned stops are indistinguishable from older formats.
+     */
+    private fun loadStopsFlat(reader: BinaryReader, magic: String, hasZone: Boolean): List<Stop> {
+        reader.readMagic(magic)
         reader.readUInt16() // version
         val count = reader.readUInt32()
 
@@ -106,6 +112,7 @@ object NetworkLoader {
             val name = reader.readUTF8(nameLen)
             val lat = reader.readFloat64()
             val lon = reader.readFloat64()
+            val zone = if (hasZone) reader.readUTF8(reader.readUInt16()).ifEmpty { null } else null
 
             val routeRefCount = reader.readUInt32()
             val routeIds = IntArray(routeRefCount) { reader.readUInt32() }
@@ -115,7 +122,7 @@ object NetworkLoader {
                 Transfer(targetStopId = reader.readUInt32(), walkTime = reader.readInt32())
             }
 
-            Stop(id, name, lat, lon, routeIds, transfers)
+            Stop(id, name, lat, lon, routeIds, transfers, zone)
         }
     }
 
