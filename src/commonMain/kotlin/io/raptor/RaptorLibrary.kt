@@ -438,16 +438,80 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
-        // Single backward pass: exact latest departure that still arrives by arrivalTime
-        // (replaces the historical binary search over departure times — ~7 forward runs).
+        // Single backward pass: a fast HINT for the latest departure that still arrives on time.
+        // The backward pass is admissible for almost every query, but on real data it can be off in
+        // EITHER direction (a same-station implicit transfer can make a connection look catchable-or-
+        // missable that the forward direction resolves the other way): overshoot (too late), under-
+        // shoot (too early), or — in the extreme — a spurious Int.MIN_VALUE (misses the journey).
         val bestDeparture = algorithm.routeBackward(
             originIndices, destinationIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds
         )
 
-        if (bestDeparture == Int.MIN_VALUE) return emptyList()
-        // One tracked forward run at the optimal departure so journeys can be reconstructed.
-        algorithm.route(originIndices, destinationIndices, bestDeparture, routeFilter, maxRounds)
+        // Fast path: trust the hint only when two forward runs confirm it is exactly the latest
+        // feasible departure — on-time here, late one grid step later. (2 forward runs.)
+        if (bestDeparture != Int.MIN_VALUE) {
+            val laterIsLate = algorithm.route(
+                originIndices, destinationIndices, bestDeparture + ARRIVE_BY_STEP_SECONDS, routeFilter, maxRounds
+            ) > arrivalTime
+            // This run leaves the forward state at bestDeparture, ready for extraction.
+            val hintArrival = algorithm.route(originIndices, destinationIndices, bestDeparture, routeFilter, maxRounds)
+            if (hintArrival <= arrivalTime && laterIsLate) {
+                return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
+            }
+        }
+
+        // Hint absent, too late, or too early → authoritative bounded forward search. This is the
+        // ground truth (an exhaustive bisection over the window, cheap-rejecting infeasible queries),
+        // so it is correct no matter how the backward hint erred — including a spurious MIN.
+        val departure = latestFeasibleDeparture(
+            algorithm, originIndices, destinationIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds
+        )
+        if (departure == Int.MIN_VALUE) return emptyList()
+        algorithm.route(originIndices, destinationIndices, departure, routeFilter, maxRounds)
         return extractParetoJourneys(algorithm, destinationIndices, maxRounds, arrivalTime)
+    }
+
+    /**
+     * Latest 60s-grid departure in [[earliestDeparture], [arrivalTime]] whose forward run reaches a
+     * destination by [arrivalTime] (arrival includes the egress walk when [egressSeconds] is given).
+     * Feasibility is monotone in departure — an earlier departure never loses reachability — so a
+     * binary search on the forward API finds the boundary in ~log2(window) runs. Mirrors the
+     * historical bisection and is used only to correct a rare backward-pass overshoot.
+     */
+    private fun latestFeasibleDeparture(
+        algorithm: RaptorAlgorithm,
+        originIndices: List<Int>,
+        destinationIndices: List<Int>,
+        arrivalTime: Int,
+        earliestDeparture: Int,
+        routeFilter: io.raptor.core.RouteFilter?,
+        maxRounds: Int,
+        accessSeconds: IntArray? = null,
+        egressSeconds: IntArray? = null
+    ): Int {
+        // Monotone feasibility: the earliest departure has the most time, so if even it misses the
+        // deadline nothing can — a one-run reject for genuinely infeasible queries.
+        if (algorithm.route(
+                originIndices, destinationIndices, earliestDeparture, routeFilter, maxRounds, accessSeconds, egressSeconds
+            ) > arrivalTime
+        ) return Int.MIN_VALUE
+
+        var low = earliestDeparture
+        var high = arrivalTime
+        var best = Int.MIN_VALUE
+        while (low <= high) {
+            val mid = low + (high - low) / 2
+            val arrival = algorithm.route(
+                originIndices, destinationIndices, mid, routeFilter, maxRounds, accessSeconds, egressSeconds
+            )
+            if (arrival <= arrivalTime) {
+                best = mid
+                low = mid + ARRIVE_BY_STEP_SECONDS
+            } else {
+                high = mid - ARRIVE_BY_STEP_SECONDS
+            }
+        }
+        return best
     }
 
     /**
@@ -501,7 +565,7 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         val routeFilter = buildRouteFilter(allowedRouteIds, allowedRouteNames, blockedRouteIds, blockedRouteNames)
         val algorithm = algorithmCache.getOrPut(currentPeriodId) { RaptorAlgorithm(network, debug = false) }
 
-        // Single backward pass: exact latest coordinate departure still arriving on time
+        // Single backward pass: a fast HINT for the latest coordinate departure still on time.
         val bestDeparture = algorithm.routeBackward(
             o.stopIndices, d.stopIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds,
             accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds,
@@ -510,13 +574,40 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
 
         val journeys = mutableListOf<List<JourneyLeg>>()
         if (directWalk != null) journeys.add(listOf(directWalk))
+
+        // Same over/under/spurious-MIN handling as the stop-id overload. Walk arrays are carried
+        // through every run so arrivals are egress-adjusted.
+        var transitDeparture = Int.MIN_VALUE
+        // Fast path: a hint that strictly beats the pure walk, verified by two forward runs.
         if (bestDeparture != Int.MIN_VALUE && bestDeparture > walkDeparture) {
-            // Tracked forward re-run at the optimal departure (same walk arrays, so origin stops
-            // are seeded at bestDeparture + access and extraction sees egress-adjusted arrivals).
-            algorithm.route(
+            val laterIsLate = algorithm.route(
+                o.stopIndices, d.stopIndices, bestDeparture + ARRIVE_BY_STEP_SECONDS, routeFilter, maxRounds,
+                accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
+            ) > arrivalTime
+            // Leaves the forward state at bestDeparture, ready for extraction on the fast path.
+            val hintArrival = algorithm.route(
                 o.stopIndices, d.stopIndices, bestDeparture, routeFilter, maxRounds,
                 accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
             )
+            if (hintArrival <= arrivalTime && laterIsLate) transitDeparture = bestDeparture
+        }
+        if (transitDeparture == Int.MIN_VALUE) {
+            // Authoritative bounded search — correct no matter how the hint erred (too late, too
+            // early, or a spurious MIN / one that failed to beat the walk).
+            val found = latestFeasibleDeparture(
+                algorithm, o.stopIndices, d.stopIndices, arrivalTime, earliestDeparture, routeFilter, maxRounds,
+                accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
+            )
+            if (found != Int.MIN_VALUE) {
+                algorithm.route(
+                    o.stopIndices, d.stopIndices, found, routeFilter, maxRounds,
+                    accessSeconds = o.walkSeconds, egressSeconds = d.walkSeconds
+                )
+                transitDeparture = found
+            }
+        }
+        // A transit journey is worth returning only when it departs later than the pure walk.
+        if (transitDeparture != Int.MIN_VALUE && transitDeparture > walkDeparture) {
             extractWalkingParetoJourneys(
                 algorithm, network, o, d, maxRounds,
                 initialBound = Int.MAX_VALUE, maxArrivalTime = arrivalTime, journeys = journeys
@@ -694,5 +785,11 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
         fun p(v: Int): String = v.toString().padStart(2, '0')
         return if (h >= 24) "${p(h - 24)}:${p(m)}:${p(s)}(+1)"
         else "${p(h)}:${p(m)}:${p(s)}"
+    }
+
+    private companion object {
+        // Grid step for arrive-by departure search — matches the trip-time granularity (seconds
+        // are whole minutes) and the historical bisection reference.
+        private const val ARRIVE_BY_STEP_SECONDS = 60
     }
 }

@@ -23,7 +23,10 @@ import org.junit.Test
 class ArriveByDominanceTest {
 
     companion object {
-        private const val QUERY_COUNT = 150
+        // 400 random pairs so enough have a feasible arrive-by within the 1-hour window to make the
+        // dominance comparison meaningful (only ~9% of random cross-network pairs are reachable in
+        // an hour on the current LYON data).
+        private const val QUERY_COUNT = 400
         private const val SEARCH_WINDOW_SECONDS = 120 * 60
         private const val STEP_SECONDS = 60
 

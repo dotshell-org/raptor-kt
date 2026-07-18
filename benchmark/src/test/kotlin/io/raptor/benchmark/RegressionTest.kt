@@ -22,12 +22,17 @@ import org.junit.Test
 class RegressionTest {
 
     companion object {
-        // Baseline hashes (LYON) locked from the first run — any optimization must reproduce them exactly.
-        private val EXPECTED_FORWARD: String? = "30337ac4be89420b"
-        // Re-locked after the backward-RAPTOR arrive-by rewrite: results legitimately changed
-        // (exact latest departure instead of a 60s bisection grid). Validated by
-        // ArriveByDominanceTest: never worse than the historical bisection on any query.
-        private val EXPECTED_ARRIVE_BY: String? = "e4cb9e7df2820bbb"
+        // Baseline hashes (LYON) — any optimization must reproduce them exactly.
+        // Re-locked 2026-07-18: the bundled LYON assets were refreshed since the previous lock
+        // (2026-07-05), so the deterministic routing output legitimately changed. Verified that the
+        // pre-existing (unmodified) code produces this same forward hash on the current data —
+        // i.e. the change is data, not a code regression.
+        private val EXPECTED_FORWARD: String? = "eda7f641a33128fa"
+        // Re-locked 2026-07-18 together with the arrive-by overshoot/undershoot correction in
+        // RaptorLibrary.getOptimizedPathsArriveBy: the backward hint is now verified and corrected
+        // via a bounded forward search, so arrive-by output changed (and is now dominance-checked
+        // against the bisection reference on 400 queries).
+        private val EXPECTED_ARRIVE_BY: String? = "05651ef2e92f2386"
 
         private const val FORWARD_QUERIES = 500
         private const val ARRIVE_BY_QUERIES = 200
