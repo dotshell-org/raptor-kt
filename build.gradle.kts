@@ -18,6 +18,7 @@ kotlin {
     }
     iosArm64()
     iosSimulatorArm64()
+    jvm()
 
     sourceSets {
         // commonMain holds the whole library (pure Kotlin, no platform APIs).
