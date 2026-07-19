@@ -52,6 +52,13 @@ android {
 // We only attach the shared POM metadata to each of them.
 publishing {
     publications.withType<MavenPublication>().configureEach {
+        val pubName = name
+        val emptyJavadocJar = tasks.register("${pubName}JavadocJar", Jar::class) {
+            archiveClassifier.set("javadoc")
+            archiveAppendix.set(pubName)
+        }
+        artifact(emptyJavadocJar)
+
         pom {
             name.set("Raptor-KMP")
             description.set("RAPTOR algorithm implementation in Kotlin Multiplatform (Android + iOS)")
