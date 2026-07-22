@@ -27,6 +27,9 @@ open class LoadBenchmark {
             stopsBytes = config.stopsPath().readBytes(),
             routesBytes = config.routesPath().readBytes()
         )
+        // Networks are now built lazily, so force the active period's build here; otherwise this
+        // would only time the (cheap) constructor instead of deserialization + Network construction.
+        bh.consume(lib.getStops(lib.getCurrentPeriod()))
         bh.consume(lib)
     }
 }

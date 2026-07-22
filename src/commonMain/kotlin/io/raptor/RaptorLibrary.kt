@@ -6,19 +6,31 @@ import io.raptor.core.RaptorAlgorithm
 import io.raptor.data.NetworkLoader
 import io.raptor.geo.Geo
 import io.raptor.model.Network
+import io.raptor.model.Route
 import io.raptor.model.Stop
 
 /**
- * Binary data for a specific time period — the full `.bin` contents read into memory.
+ * Binary data for a specific time period. The stops/routes bytes are supplied through providers
+ * so a period's `.bin` files are read only when that period is actually built — see
+ * [RaptorLibrary]'s lazy per-period construction. Callers holding the bytes already in memory can
+ * use the eager convenience constructor.
+ *
  * @param periodId Identifier for this time period (e.g., "winter2024", "summer2024")
- * @param stopsBytes Raw bytes of the stops binary file
- * @param routesBytes Raw bytes of the routes binary file
+ * @param stopsProvider Supplies the raw bytes of the stops binary file (invoked at most once)
+ * @param routesProvider Supplies the raw bytes of the routes binary file (invoked at most once)
  */
-data class PeriodData(
+class PeriodData(
     val periodId: String,
-    val stopsBytes: ByteArray,
-    val routesBytes: ByteArray
-)
+    val stopsProvider: () -> ByteArray,
+    val routesProvider: () -> ByteArray
+) {
+    /**
+     * Eager convenience constructor for callers that already hold the bytes in memory.
+     * Backward-compatible with the previous `PeriodData(periodId, stopsBytes, routesBytes)`.
+     */
+    constructor(periodId: String, stopsBytes: ByteArray, routesBytes: ByteArray) :
+        this(periodId, { stopsBytes }, { routesBytes })
+}
 
 /**
  * RAPTOR library for routing search with support for multiple time periods.
@@ -32,19 +44,24 @@ data class PeriodData(
  * ```
  */
 class RaptorLibrary(periodDataList: List<PeriodData>) {
-    private val networks: Map<String, Network>
+    // Each period's Network is built lazily on first access, so cold start only pays for the
+    // active period; the other periods (e.g. weekend/holiday schedules) are read from their
+    // providers and indexed only when they are actually selected via [setPeriod] or queried.
+    private val networks: Map<String, Lazy<Network>>
     private val algorithmCache = mutableMapOf<String, RaptorAlgorithm>()
     private var currentPeriodId: String
 
     init {
         require(periodDataList.isNotEmpty()) { "At least one period data must be provided" }
-        
+
         networks = periodDataList.associate { periodData ->
-            val stops = NetworkLoader.loadStops(periodData.stopsBytes)
-            val routes = NetworkLoader.loadRoutes(periodData.routesBytes)
-            periodData.periodId to Network(stops, routes)
+            periodData.periodId to lazy {
+                val stops = NetworkLoader.loadStops(periodData.stopsProvider())
+                val routes = NetworkLoader.loadRoutes(periodData.routesProvider())
+                Network(stops, routes)
+            }
         }
-        
+
         // Par défaut, utilise la première période
         currentPeriodId = periodDataList.first().periodId
     }
@@ -79,11 +96,26 @@ class RaptorLibrary(periodDataList: List<PeriodData>) {
      * Gets all available period identifiers
      */
     fun getAvailablePeriods(): Set<String> = networks.keys
-    
+
+    /**
+     * Parsed routes of [periodId]. Triggers the (lazy) build of that period's network on first
+     * access, and returns an empty list if the period is unknown. Lets callers reuse the engine's
+     * already-parsed data instead of re-parsing the `.bin` bytes themselves.
+     */
+    fun getRoutes(periodId: String): List<Route> =
+        networks[periodId]?.value?.routeList?.toList() ?: emptyList()
+
+    /**
+     * Parsed stops of [periodId]. Triggers the (lazy) build of that period's network on first
+     * access, and returns an empty list if the period is unknown.
+     */
+    fun getStops(periodId: String): List<Stop> =
+        networks[periodId]?.value?.stops ?: emptyList()
+
     /**
      * Gets the network for the current period
      */
-    private fun getCurrentNetwork(): Network = networks[currentPeriodId]!!
+    private fun getCurrentNetwork(): Network = networks[currentPeriodId]!!.value
 
     /**
      * Searches for optimized paths between stop identifiers.
