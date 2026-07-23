@@ -91,3 +91,5 @@ registerJmhRun("jmhNamedRtm", "io.raptor.benchmark.NamedRoutesRtmBenchmark.*", "
 registerJmhRun("jmhNamedParis", "io.raptor.benchmark.NamedRoutesParisBenchmark.*", "3g")
 // 1000-random-query aggregate on the Paris network (dataset param overridden via JMH CLI)
 registerJmhRun("jmhAggregateParis", "io.raptor.benchmark.RaptorBenchmark.*", "3g", listOf("-p", "dataset=PARIS"))
+// findNearbyStops: spatial grid vs the old brute-force scan, on the IDFM (Paris) stop set
+registerJmhRun("jmhNearbyParis", "io.raptor.benchmark.NearbyStopsBenchmark.*", "2g")
