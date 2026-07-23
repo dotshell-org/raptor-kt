@@ -163,4 +163,52 @@ class GeoTest {
             assertEquals("radius $radius", expected, actual)
         }
     }
+
+    /**
+     * The spatial grid must reproduce the brute-force haversine scan exactly: same set of stops,
+     * same distances, sorted by index — across many randomized city-scale networks, query points
+     * inside AND outside the cluster, and radii from 0 up to well past a cell. This is the invariant
+     * that the grid narrows *which* stops are checked but never drops or adds one.
+     */
+    @Test
+    fun gridMatchesBruteForceOnRandomNetworks() {
+        val rnd = kotlin.random.Random(20240718)
+        val radii = listOf(0.0, 50.0, 250.0, 500.0, 1200.0, 5000.0)
+        repeat(20) {
+            val nStops = 200 + rnd.nextInt(1500)
+            val cLat = 40.0 + rnd.nextDouble() * 10.0   // 40..50°N (cos(lat) well away from 0)
+            val cLon = -2.0 + rnd.nextDouble() * 10.0
+            val stops = List(nStops) { i ->
+                Stop(
+                    id = i, name = "S$i",
+                    lat = cLat + (rnd.nextDouble() - 0.5) * 0.2,   // ~±11 km cluster
+                    lon = cLon + (rnd.nextDouble() - 0.5) * 0.2,
+                    routeIds = IntArray(0), transfers = emptyList()
+                )
+            }
+            val network = Network(stops, emptyList())
+            repeat(50) {
+                // Mostly inside the cluster, some points just outside it
+                val qLat = cLat + (rnd.nextDouble() - 0.5) * 0.3
+                val qLon = cLon + (rnd.nextDouble() - 0.5) * 0.3
+                for (radius in radii) {
+                    val expected = stops.indices.filter {
+                        Geo.distanceMeters(qLat, qLon, stops[it].lat, stops[it].lon) <= radius
+                    }.toSet()
+                    val nearby = network.findNearbyStops(qLat, qLon, radius)
+                    val actual = nearby.map { it.stopIndex }.toSet()
+                    val ctx = "r=$radius c=($cLat,$cLon) q=($qLat,$qLon)"
+                    assertEquals(ctx, expected, actual)
+                    // Exact distances preserved
+                    for (ns in nearby) {
+                        val exact = Geo.distanceMeters(qLat, qLon, stops[ns.stopIndex].lat, stops[ns.stopIndex].lon)
+                        assertEquals(ctx, exact, ns.distanceMeters, 1e-9)
+                    }
+                    // Output order matches the historical brute-force scan (ascending stop index)
+                    val idxs = nearby.map { it.stopIndex }
+                    assertEquals(ctx, idxs.sorted(), idxs)
+                }
+            }
+        }
+    }
 }
